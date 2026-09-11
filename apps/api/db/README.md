@@ -1,0 +1,104 @@
+# Database
+
+The PostgreSQL schema for the platform. `apps/api` is the only thing that
+talks to it.
+
+## Requirements
+
+PostgreSQL 14 or newer. Nothing here installs an extension: `gen_random_uuid()`
+has been built into PostgreSQL since version 13, and `plpgsql`, which the
+`updated_at` trigger needs, is installed in a new database by default.
+
+## Applying the migrations
+
+There is no migration runner yet, because adding one means adding a
+dependency. Until a ticket picks one, apply the files in order with `psql`:
+
+```bash
+createdb explorer
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
+```
+
+Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
+part way through leaves the database exactly as it was.
+
+## Writing a migration
+
+- Name it `NNNN_short_description.sql`, with the number four digits.
+- Wrap the whole file in one transaction.
+- Never edit a file that has been applied anywhere. Write the next one.
+- Give every table-level `CHECK` a name. An API that has to turn a constraint
+  violation into a message for a teacher needs to know which rule broke, and
+  `mission_node_check2` does not tell it.
+
+## How the schema is laid out
+
+| Group | Tables |
+| ----- | ------ |
+| Tenancy and accounts | `organisation`, `app_user`, `membership`, `subscription` |
+| Authoring | `expedition`, `expedition_version`, `mission_type`, `mission_template` |
+| Inside one revision | `mission_instance`, `mission_node`, `hint` |
+| Running an expedition | `expedition_session`, `participant`, `team`, `team_member` |
+| Playing a mission | `mission_attempt`, `submission` |
+| Assets and rewards | `media_asset`, `badge`, `ar_asset`, `qr_marker`, `inventory_item` |
+| Event streams | `score_event`, `live_event`, `audit_log` |
+
+### The definition document, and the copy of it
+
+`expedition_version.definition` holds a whole Expedition Definition
+(EXPD-002) as one JSONB document. That document is the source of truth. It is
+self contained, so the engine can run an expedition from it without another
+query.
+
+`mission_instance`, `mission_node` and `hint` are a flat copy of the parts of
+that document other rows have to point at. A mission attempt needs a real
+foreign key to the mission it is an attempt of, and a string buried in a JSONB
+document cannot be one. EXPD-017 writes the copy whenever it writes a version.
+
+If the two ever disagree, the document wins.
+
+The graph's edges have no table. They stay in the document, where the engine
+already reads them, and the edges leaving one node are copied into
+`mission_node.outgoing_edges` so the Studio can draw a node without loading
+the whole document. Nothing at runtime points at an edge.
+
+### Where JSONB is used, and why
+
+JSONB is used in exactly two situations, and nowhere else.
+
+1. **The shape belongs to somebody else.** `mission_instance.config` is the
+   clearest case: a QR hunt keeps its codes there and a puzzle keeps its
+   answers, and only the mission type knows which is right. The same goes for
+   `submission.payload`, `mission_type.config_schema` and `badge.criteria`.
+2. **The document is stored whole.** `expedition_version.definition`.
+
+Everything a query filters, sorts or joins on is a real column. Ages, scores,
+locations, times and statuses are not hidden inside JSONB.
+
+### Tenancy
+
+Every table an organisation owns carries `organisation_id`, even where it
+could be reached by following a parent. It is there so that an isolation
+check is one predicate on the table being read, rather than a join chain
+somebody can forget. EXPD-004 and EXPD-005 use it.
+
+`mission_type` and `mission_template` and `badge` are the exception: a NULL
+`organisation_id` there means a platform-wide row every organisation can use.
+
+### Append-only tables
+
+`score_event`, `live_event` and `audit_log` are written once and never
+changed. They have no `updated_at` column and no trigger. Nothing yet stops
+an `UPDATE`; making that a rule the database enforces is EXPD-014 for scores
+and EXPD-006 for the audit log.
+
+### Deletes
+
+Inside one thing, a delete cascades: deleting a revision deletes its missions
+and nodes, and deleting a run deletes its teams and participants.
+
+Across things that hold history, it does not. A revision a team has played
+cannot be deleted, because `expedition_session` points at it with `RESTRICT`.
+The audit log keeps `entity_id` as a plain uuid with no foreign key at all,
+because an entry about something that has been deleted is exactly the entry
+somebody will want to read.
