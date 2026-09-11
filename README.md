@@ -11,6 +11,7 @@ This repository is a single npm workspace. Everything lives here.
 | Path                     | What it is                                                              |
 | ------------------------ | ----------------------------------------------------------------------- |
 | `apps/api`               | Express REST API. The only thing that talks to the database.            |
+| `apps/api/db`            | The PostgreSQL schema, as numbered SQL migrations.                      |
 | `apps/creator-web`       | React app teachers use to build and run expeditions.                    |
 | `apps/studio`            | React app for authoring mission types, graphs and scoring rules.        |
 | `apps/admin`             | React app for internal organisation, plan and support work.             |
@@ -24,6 +25,8 @@ This repository is a single npm workspace. Everything lives here.
 
 - Node.js 22.18 or newer. The API runs TypeScript directly, which needs that
   version. Run `nvm use` to pick up `.nvmrc`.
+- PostgreSQL 14 or newer, to apply the schema in `apps/api/db`. Nothing in the
+  repository connects to it yet.
 
 ## Getting started
 
@@ -60,9 +63,9 @@ curl http://localhost:3000/health
 ## State of the code
 
 The phase-0 scaffold (EXPD-001) is in place: each app and package has a
-working build and a placeholder entry point. On top of it sits the Expedition
-Definition schema (EXPD-002), described below. The rest is tracked in its own
-tickets:
+working build and a placeholder entry point. On top of it sit the Expedition
+Definition schema (EXPD-002) and the database schema (EXPD-003), both
+described below. The rest is tracked in its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -102,6 +105,29 @@ for that (EXPD-009).
 
 There are no automated tests for it yet. The repository has no test runner, and
 adding one is EXPD-008.
+
+### The database schema
+
+`apps/api/db/migrations/` holds the PostgreSQL schema as numbered SQL files.
+`0001_core_data_model.sql` creates all 25 tables, from `organisation` down to
+`audit_log`. `apps/api/db/README.md` explains how to apply them and how the
+tables are laid out.
+
+```bash
+createdb explorer
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
+```
+
+The schema stores a published expedition twice over, on purpose. The whole
+EXPD-002 document goes into `expedition_version.definition` as JSONB and is
+the source of truth. `mission_instance`, `mission_node` and `hint` are a flat
+copy of the parts that runtime rows have to hold a foreign key to, since a
+mission attempt cannot point at a string buried in a JSONB document. EXPD-017
+writes both together.
+
+Nothing in the repository connects to a database yet. Opening a connection is
+EXPD-016, and choosing a migration runner needs a dependency, which no ticket
+has added.
 
 ### Known gaps in `apps/student-mobile`
 
