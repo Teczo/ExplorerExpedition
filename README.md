@@ -59,17 +59,49 @@ curl http://localhost:3000/health
 
 ## State of the code
 
-This is the phase-0 scaffold (EXPD-001). Each app and package has a working
-build and a placeholder entry point, and nothing more. The features are
-tracked in their own tickets:
+The phase-0 scaffold (EXPD-001) is in place: each app and package has a
+working build and a placeholder entry point. On top of it sits the Expedition
+Definition schema (EXPD-002), described below. The rest is tracked in its own
+tickets:
 
-- Expedition Definition schema — EXPD-002
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
 - Creator web shell — EXPD-049
 - Admin portal — EXPD-070
+
+### The Expedition Definition schema
+
+`packages/shared-types/src/expedition/` holds the contract for an expedition:
+its metadata, missions, graph, rules and scoring. Everything that authors,
+stores, plays or generates an expedition reads and writes this one shape.
+
+```ts
+import {
+  validateExpeditionDefinition,
+  type ExpeditionDefinition,
+} from '@explorer/shared-types';
+
+const result = validateExpeditionDefinition(await request.json());
+if (!result.valid) {
+  // Each issue carries the path to the field, such as `graph.edges[3].to`.
+  return reply.status(400).send({ issues: result.issues });
+}
+```
+
+The document carries its own `schemaVersion`, so a reader can tell whether it
+understands a file before reading it. `packages/shared-types/src/expedition/version.ts`
+sets out the compatibility rules.
+
+`validateExpeditionDefinition` checks the shape of a document and the way its
+parts point at each other: unknown ids, a mission no node uses, a graph with no
+start, a node nothing can reach, a loop. It does not check
+`MissionInstance.config`, because only the mission type knows the right shape
+for that (EXPD-009).
+
+There are no automated tests for it yet. The repository has no test runner, and
+adding one is EXPD-008.
 
 ### Known gaps in `apps/student-mobile`
 

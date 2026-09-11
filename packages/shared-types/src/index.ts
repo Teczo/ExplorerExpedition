@@ -4,8 +4,9 @@
  * This package is the single place where types crossing a package or app
  * boundary live. Nothing here should import from an app.
  *
- * The Expedition Definition schema is EXPD-002 and is not part of this
- * scaffold. Until then this file only carries the small helpers below.
+ * The Expedition Definition schema (EXPD-002) lives in `./expedition`, and is
+ * re-exported at the bottom of this file. The small helpers below are used by
+ * it and by everything else that crosses a boundary.
  */
 
 /**
@@ -32,3 +33,11 @@ export const APP_NAMES = [
 
 /** The name of one of the platform apps. */
 export type AppName = (typeof APP_NAMES)[number];
+
+/**
+ * The Expedition Definition schema (EXPD-002).
+ *
+ * Re-exported here so that callers can write
+ * `import type { ExpeditionDefinition } from '@explorer/shared-types'`.
+ */
+export * from './expedition/index.ts';
