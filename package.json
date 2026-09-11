@@ -1,0 +1,25 @@
+{
+  "name": "explorer-expedition",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Explorer Expedition Platform \u2014 API-first real-world game engine.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @explorer/shared-types && npm run build -w @explorer/engine",
+    "build": "npm run build:packages && npm run build -w @explorer/api && npm run build -w @explorer/creator-web && npm run build -w @explorer/studio && npm run build -w @explorer/admin",
+    "typecheck": "npm run build:packages && npm run typecheck --workspaces --if-present",
+    "dev:api": "npm run dev -w @explorer/api",
+    "dev:creator-web": "npm run dev -w @explorer/creator-web",
+    "dev:studio": "npm run dev -w @explorer/studio",
+    "dev:admin": "npm run dev -w @explorer/admin",
+    "dev:student-mobile": "npm run start -w @explorer/student-mobile",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist apps/*/*.tsbuildinfo packages/*/*.tsbuildinfo"
+  }
+}

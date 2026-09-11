@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# vite
+.vite/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+
+# react native
+apps/student-mobile/android/
+apps/student-mobile/ios/
+.metro-health-check*
+
+# editors and os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

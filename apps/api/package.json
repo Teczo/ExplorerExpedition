@@ -1,0 +1,24 @@
+{
+  "name": "@explorer/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Explorer Expedition REST API.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@explorer/engine": "*",
+    "@explorer/shared-types": "*",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.2",
+    "typescript": "^5.9.3"
+  }
+}

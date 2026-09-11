@@ -1,0 +1,25 @@
+{
+  "name": "@explorer/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Types shared across the Explorer Expedition apps and the Mission Engine.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
