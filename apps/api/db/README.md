@@ -17,6 +17,7 @@ dependency. Until a ticket picks one, apply the files in order with `psql`:
 ```bash
 createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
@@ -36,6 +37,7 @@ part way through leaves the database exactly as it was.
 | Group | Tables |
 | ----- | ------ |
 | Tenancy and accounts | `organisation`, `app_user`, `membership`, `subscription` |
+| Signing in | `user_credential`, `auth_session`, `participant_device` |
 | Authoring | `expedition`, `expedition_version`, `mission_type`, `mission_template` |
 | Inside one revision | `mission_instance`, `mission_node`, `hint` |
 | Running an expedition | `expedition_session`, `participant`, `team`, `team_member` |
@@ -84,6 +86,44 @@ somebody can forget. EXPD-004 and EXPD-005 use it.
 
 `mission_type` and `mission_template` and `badge` are the exception: a NULL
 `organisation_id` there means a platform-wide row every organisation can use.
+
+`audit_log` also allows a NULL, but it means the opposite: an action that
+belongs to the platform rather than to any organisation. Nothing widens a
+read to include those, and `organisation_id = $org` excludes them by itself.
+
+Four tables carry no `organisation_id` at all, and none of them should.
+`organisation` is the tenant. `app_user` is a person, and a person is not
+owned by a school — the same teacher can work for two, which is what
+`membership` is for. `user_credential` is that person's password, and
+`auth_session` is their sign-in, which exists before they have chosen an
+organisation to act for.
+
+`apps/api/src/db/tables.ts` holds the same list in TypeScript, and the
+repository layer checks every statement against it. `findTableRegistryDrift`
+compares the two, so a table a migration adds without listing it there is
+caught rather than being noticed the first time somebody queries it.
+
+### Signing in
+
+`0002_auth_and_tenancy.sql` adds what auth needs, and nothing else.
+
+`app_user.is_platform_admin` is the only grant in the schema that crosses the
+tenant boundary. It is a column rather than a `membership` role because the
+grant belongs to no organisation, so there is no organisation to hang it off.
+
+`user_credential.password_hash` holds the whole verifier, its cost parameters
+included, so the cost can be raised later without a migration and without
+locking out anybody whose row still carries the old one.
+
+`auth_session` stores only the SHA-256 of a refresh token, so reading the
+table gives an attacker nothing they can present. `family_id` ties together
+every rotation descending from one sign-in: refreshing marks the old row
+`rotated` and adds a new one to the same family, and a rotated token
+presented again means two holders, so the whole family is revoked.
+
+`participant_device` is the same idea for a student's phone, which has no
+account to sign in with. It is tenant scoped, like everything a participant
+owns.
 
 ### Append-only tables
 
