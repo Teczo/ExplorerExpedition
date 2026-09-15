@@ -64,8 +64,9 @@ curl http://localhost:3000/health
 
 The phase-0 scaffold (EXPD-001) is in place: each app and package has a
 working build and a placeholder entry point. On top of it sit the Expedition
-Definition schema (EXPD-002) and the database schema (EXPD-003), both
-described below. The rest is tracked in its own tickets:
+Definition schema (EXPD-002), the database schema (EXPD-003), and auth and
+organisation tenancy (EXPD-004), all described below. The rest is tracked in
+its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -116,6 +117,7 @@ tables are laid out.
 ```bash
 createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -128,6 +130,86 @@ writes both together.
 Nothing in the repository connects to a database yet. Opening a connection is
 EXPD-016, and choosing a migration runner needs a dependency, which no ticket
 has added.
+
+### Auth and organisation tenancy
+
+Two halves. The vocabulary is in `packages/shared-types/src/auth/`, because
+the Studio and the student app need it too. Everything that hashes, signs or
+reads a row is in `apps/api/src/auth/` and `apps/api/src/db/`.
+
+**Roles.** The database stores five membership roles; the code checks six
+platform roles. They are different lists on purpose, and
+`ORG_ROLE_BY_MEMBERSHIP_ROLE` is the one place they are joined up.
+
+| `membership.role` | Platform role    | What it means                          |
+| ----------------- | ---------------- | -------------------------------------- |
+| `owner`, `admin`  | `org-admin`      | Runs one organisation.                 |
+| `creator`         | `creator`        | Builds expeditions and mission types.  |
+| `teacher`         | `facilitator`    | Runs a class. Does not author.         |
+| `member`          | `org-member`     | Signed in, granted nothing yet.        |
+| —                 | `platform-admin` | `app_user.is_platform_admin`.          |
+| —                 | `student-device` | A phone. No account (EXPD-071).        |
+
+Code asks what somebody may *do*, never what role they hold:
+
+```ts
+import { can } from '@explorer/shared-types';
+
+if (!can(principal, 'expedition:publish')) {
+  return response.status(403).json({ error: 'forbidden' });
+}
+```
+
+**Org-scoped tokens.** Signing in is two steps. `POST /auth/sign-in` checks
+the password and answers with a refresh token and the organisations the
+person may act for; `POST /auth/token` trades that for an access token naming
+one of them. A teacher who works for two schools holds one sign-in and one
+access token per school, and the organisation is inside the signature, so no
+header a caller sends can change it. Somebody who belongs to one organisation
+gets their access token from the first call, so the common case is still one
+round trip.
+
+**Isolation.** `apps/api/src/db` is the only thing that talks to PostgreSQL.
+A `TenantRepository` cannot be built without an organisation, and it puts
+`organisation_id = $n` into every statement it builds — reads, writes and
+deletes alike — so isolation is not something anybody has to remember:
+
+```ts
+const teams = await tenantOf(request).find('team', { where: { status: 'playing' } });
+```
+
+There are two ways out, and both are loud. `includeSharedRows` widens *reads*
+to the platform-wide mission types, templates and badges; it never widens a
+write. `GlobalRepository` reaches the four tables that belong to no
+organisation — `organisation`, `app_user`, `user_credential`, `auth_session` —
+and makes each call state a reason. Testing all of this is EXPD-005.
+
+**Passwords and tokens** are built on `node:crypto` alone: scrypt for
+passwords, HMAC-SHA256 for access tokens, and 256 random bits for refresh and
+device tokens, stored only as a SHA-256 hash. No dependency was added.
+
+**Settings.** `AUTH_TOKEN_SECRET` is required and has to be at least 32
+bytes; the API refuses to start without it rather than inventing one that
+would differ between instances.
+
+```bash
+export AUTH_TOKEN_SECRET="$(openssl rand -base64 48)"
+```
+
+`AUTH_ACCESS_TOKEN_SECONDS` (900), `AUTH_REFRESH_TOKEN_SECONDS` (30 days) and
+`AUTH_DEVICE_TOKEN_SECONDS` (14 days) are optional.
+
+The auth routes are mounted only when `createApp` is given a database.
+Nothing in the repository opens a connection yet — that is EXPD-016, and it
+needs a driver, which is a dependency no ticket has added. `pg.Pool` already
+satisfies the `Queryable` interface the repository layer is written against,
+so EXPD-016 has nothing to write but the pool:
+
+```ts
+createApp({ db: new Pool({ connectionString: process.env.DATABASE_URL }) });
+```
+
+Until then `createApp()` serves the health check, exactly as before.
 
 ### Known gaps in `apps/student-mobile`
 

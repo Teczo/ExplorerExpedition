@@ -41,3 +41,11 @@ export type AppName = (typeof APP_NAMES)[number];
  * `import type { ExpeditionDefinition } from '@explorer/shared-types'`.
  */
 export * from './expedition/index.ts';
+
+/**
+ * Auth and organisation tenancy (EXPD-004).
+ *
+ * Roles, permissions and principals. Re-exported for the same reason as the
+ * Expedition Definition above.
+ */
+export * from './auth/index.ts';
