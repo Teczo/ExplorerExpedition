@@ -49,3 +49,11 @@ export * from './expedition/index.ts';
  * Expedition Definition above.
  */
 export * from './auth/index.ts';
+
+/**
+ * The audit log (EXPD-006).
+ *
+ * What an entry says, and the closed list of things it can say happened.
+ * Re-exported for the same reason as the two above.
+ */
+export * from './audit/index.ts';

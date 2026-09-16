@@ -10,6 +10,15 @@
  *
  * As in the read tests, the store underneath does no filtering. Every row
  * that survives a delete survived because of the code under test.
+ *
+ * The tables are looped over twice rather than once, because since EXPD-006
+ * not every tenant table accepts all three statements. Inserts are checked
+ * against every one of them; updates and deletes against the ones whose rows
+ * can be changed at all. The append-only tables are held to their own rule in
+ * `test/audit/append-only.test.ts`, and `WRITABLE_TENANT_TABLES` is derived
+ * from the same registry, so a table either appears in one loop or is proved
+ * to refuse the statement in the other file. Neither list can quietly lose a
+ * table.
  */
 
 import { test, describe } from 'node:test';
@@ -21,6 +30,7 @@ import {
   ORG_A,
   ORG_B,
   TENANT_TABLES,
+  WRITABLE_TENANT_TABLES,
   organisationsOf,
   rowId,
   seedBothOrganisations,
@@ -40,7 +50,9 @@ function storedRow(db: FakeDatabase, table: string, owner: 'a' | 'b'): FakeRow {
   return row as FakeRow;
 }
 
-describe('writing to a table', () => {
+describe('inserting into a table', () => {
+  // Every tenant table, the append-only ones included: adding a row to the
+  // audit log is the one thing that is always allowed (EXPD-006).
   for (const table of TENANT_TABLES) {
     describe(table, () => {
       test('insert stamps this organisation on the row', async () => {
@@ -70,7 +82,16 @@ describe('writing to a table', () => {
 
         assert.equal(inserted['organisation_id'], ORG_A);
       });
+    });
+  }
+});
 
+describe('changing or removing a row', () => {
+  // Only the tables whose rows can be changed at all. An update against an
+  // append-only table is refused before the isolation predicate is built, and
+  // `test/audit/append-only.test.ts` is what proves it.
+  for (const table of WRITABLE_TENANT_TABLES) {
+    describe(table, () => {
       test('update leaves the other organisation’s row alone', async () => {
         const { db, portside } = bothOrganisations();
         const changed = await portside.update(table, { id: rowId(table, 'b') }, {
