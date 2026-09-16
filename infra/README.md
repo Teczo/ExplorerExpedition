@@ -142,7 +142,9 @@ app is created empty — `WEBSITE_RUN_FROM_PACKAGE` is `1` and no package has
 been pushed — so App Service serves its own placeholder page and `/health`
 answers 404. That is the expected state of a fresh environment.
 
-Once EXPD-008 has deployed `apps/api` into it, the same URL is the check:
+Once the pipeline has deployed `apps/api` into it (EXPD-008, `docs/ci.md`),
+the same URL is the check — and it is the check the pipeline itself makes
+after every deploy:
 
 ```bash
 curl "$(az deployment group show -g rg-explorer-dev -n expd-007-dev \
@@ -217,14 +219,17 @@ Written down here rather than discovered later.
 2. **Nothing is monitored.** No Log Analytics workspace, no Application
    Insights, no alert. The App Service health check takes a sick instance out
    of rotation, and that is the whole of it.
-3. **Nothing deploys code.** This creates the place the API runs, not the
+3. **This does not deploy code.** It creates the place the API runs, not the
    thing that puts it there. `SCM_DO_BUILD_DURING_DEPLOYMENT` is `false` and
    `WEBSITE_RUN_FROM_PACKAGE` is `1`, so the app expects a built artefact.
-   Building and pushing it is EXPD-008.
+   Building and pushing it is EXPD-008, which is now done: see `docs/ci.md`.
+   The two settings above are why its package has to arrive whole.
 4. **There is no CDN or static hosting** for `apps/creator-web`, `apps/studio`
    or `apps/admin`. The stack puts those on Vercel, which is not Azure and not
    this file.
 5. **`az` is not in this repository's checks.** Nothing in `npm run test`
    reads these files, because the tool that would validate them is not
-   installed by `npm install`. `az deployment group what-if` is the check, and
-   EXPD-008 is where it could become an automatic one.
+   installed by `npm install`. `az deployment group what-if` is the check,
+   and it is still one somebody runs. EXPD-008 deploys the API and the web
+   apps; it does not deploy what is under them, so these files are applied
+   by hand exactly as this page describes.
