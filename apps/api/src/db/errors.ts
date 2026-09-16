@@ -62,3 +62,30 @@ export class UnsafeIdentifierError extends Error {
     );
   }
 }
+
+/**
+ * A statement would have changed or removed a row in an append-only table.
+ *
+ * `audit_log` is written once and never touched again, and migration 0003
+ * makes that a rule PostgreSQL keeps. This is the same rule one step earlier,
+ * so that the mistake is a clear refusal naming the table rather than a
+ * driver error arriving from the database later on (EXPD-006).
+ */
+export class AppendOnlyTableError extends Error {
+  override readonly name = 'AppendOnlyTableError';
+
+  /** The table the statement was aimed at. */
+  readonly table: string;
+
+  /** What the statement would have done: `UPDATE` or `DELETE`. */
+  readonly operation: string;
+
+  constructor(table: string, operation: string) {
+    super(
+      `${table} is append-only, so ${operation} is refused. ` +
+        'Correct a wrong entry by appending another entry that says so.',
+    );
+    this.table = table;
+    this.operation = operation;
+  }
+}

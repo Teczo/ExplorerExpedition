@@ -13,7 +13,11 @@
  * check in `assertTableRegistryMatchesSchema` catches it if it is not.
  */
 
-import { TenantScopeError, UnsafeIdentifierError } from './errors.ts';
+import {
+  AppendOnlyTableError,
+  TenantScopeError,
+  UnsafeIdentifierError,
+} from './errors.ts';
 
 /** How a table relates to the organisation that owns its rows. */
 export type TableScope =
@@ -139,6 +143,44 @@ export function assertGlobal(table: string): GlobalTableName {
     );
   }
   return table as GlobalTableName;
+}
+
+/**
+ * The tables a row is only ever added to (EXPD-006).
+ *
+ * `audit_log` is the record of who changed what. A record that can be edited
+ * answers nothing, because the first thing somebody covering their tracks
+ * would edit is the line about them doing it. So the table takes an INSERT
+ * and nothing else, and it is refused in two places: here, before a statement
+ * is built, and by the triggers migration 0003 attaches to the table, which
+ * hold for every caller rather than only for this code.
+ *
+ * `score_event` and `live_event` are written once too, and they are
+ * deliberately not in this list yet. Holding the score stream to it is
+ * EXPD-014, which owns that table; adding it here is the whole change when
+ * that ticket comes round.
+ */
+export const APPEND_ONLY_TABLES: readonly TableName[] = ['audit_log'];
+
+/** Returns true when rows can only ever be added to the table. */
+export function isAppendOnly(table: string): boolean {
+  return (APPEND_ONLY_TABLES as readonly string[]).includes(table);
+}
+
+/**
+ * Returns the table name, having checked rows in it can be changed at all.
+ *
+ * Every `update` and `delete` in the repository layer calls this first. A
+ * read is untouched: the log exists to be read.
+ */
+export function assertWritable<TTable extends string>(
+  table: TTable,
+  operation: 'UPDATE' | 'DELETE',
+): TTable {
+  if (isAppendOnly(table)) {
+    throw new AppendOnlyTableError(table, operation);
+  }
+  return table;
 }
 
 /** A plain SQL identifier: lower case, starting with a letter or underscore. */

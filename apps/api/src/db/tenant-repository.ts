@@ -17,6 +17,7 @@
  *   - an update and a delete carry the predicate, and an update may not move
  *     a row to another organisation
  *   - a table with no `organisation_id` throws rather than running unscoped
+ *   - an append-only table takes an insert and refuses the other two
  *
  * There are two deliberate ways round it, and both are loud. `TenantScope`
  * with `includeSharedRows` widens *reads* to the platform-wide rows in
@@ -38,6 +39,7 @@ import { CrossTenantWriteError } from './errors.ts';
 import type { Queryable, QueryResultRow } from './queryable.ts';
 import {
   assertTenantScoped,
+  assertWritable,
   quoteIdentifier,
   scopeOf,
   type TenantTableName,
@@ -263,13 +265,15 @@ export class TenantRepository {
    * somebody else is not matched and not changed. A patch that sets
    * `organisation_id` to another organisation throws: moving a row between
    * tenants is not an update, and nothing in the platform does it.
+   *
+   * An append-only table throws too, whatever the filter matches (EXPD-006).
    */
   async update<TRow extends QueryResultRow>(
     table: TenantTableName,
     where: Filter,
     patch: Readonly<Record<string, SqlValue>>,
   ): Promise<TRow[]> {
-    const name = assertTenantScoped(table);
+    const name = assertWritable(assertTenantScoped(table), 'UPDATE');
     if (Object.keys(patch).length === 0) {
       throw new Error(`UPDATE ${name} was given nothing to change.`);
     }
@@ -298,9 +302,13 @@ export class TenantRepository {
     return rows[0] ?? null;
   }
 
-  /** Deletes every row a filter matches, and returns how many went. */
+  /**
+   * Deletes every row a filter matches, and returns how many went.
+   *
+   * Refused outright on an append-only table, as `update` is (EXPD-006).
+   */
   async delete(table: TenantTableName, where: Filter): Promise<number> {
-    const name = assertTenantScoped(table);
+    const name = assertWritable(assertTenantScoped(table), 'DELETE');
     const params = new Params();
     const scoped = this.writePredicate(name, params);
     const caller = buildFilter(where, params);

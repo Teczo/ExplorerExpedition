@@ -66,9 +66,9 @@ curl http://localhost:3000/health
 The phase-0 scaffold (EXPD-001) is in place: each app and package has a
 working build and a placeholder entry point. On top of it sit the Expedition
 Definition schema (EXPD-002), the database schema (EXPD-003), auth and
-organisation tenancy (EXPD-004), and the cross-organisation isolation tests
-that hold EXPD-004 to its word (EXPD-005), all described below. The rest is
-tracked in its own tickets:
+organisation tenancy (EXPD-004), the cross-organisation isolation tests that
+hold EXPD-004 to its word (EXPD-005), and the append-only audit log
+(EXPD-006), all described below. The rest is tracked in its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -114,13 +114,15 @@ of any ticket that has been done.
 
 `apps/api/db/migrations/` holds the PostgreSQL schema as numbered SQL files.
 `0001_core_data_model.sql` creates all 25 tables, from `organisation` down to
-`audit_log`. `apps/api/db/README.md` explains how to apply them and how the
+`audit_log`, and `0003_append_only_audit_log.sql` makes the last of those a
+table nothing can edit. `apps/api/db/README.md` explains how to apply them and how the
 tables are laid out.
 
 ```bash
 createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -277,6 +279,106 @@ left to be discovered:
    intended; they do not prove the database would refuse a statement that did
    not. Row-level security would be that second belt, and no ticket has asked
    for one.
+
+### The audit log
+
+`audit_log` answers one question, and it has to keep answering it years
+later: who changed this, and when. EXPD-006 is what makes the answer worth
+trusting. Two halves again — the vocabulary is in
+`packages/shared-types/src/audit/`, because the admin portal and the Studio
+read entries; the writing is in `apps/api/src/audit/`.
+
+**It cannot be edited.** The table takes an `INSERT` and nothing else.
+Migration `0003` puts triggers on it that refuse an `UPDATE`, a `DELETE` and
+a `TRUNCATE` from every caller, and `TenantRepository` refuses the first two
+before a statement is built, so the mistake is a clear message rather than a
+driver error later:
+
+```
+AppendOnlyTableError: audit_log is append-only, so UPDATE is refused.
+Correct a wrong entry by appending another entry that says so.
+```
+
+There is no method on `AuditLog` that changes an entry, and there is no
+`audit:write` permission, because there is nothing either would be for.
+`audit:read` already existed, and only `org-admin` and `platform-admin` hold
+it.
+
+**It cannot leave its organisation.** `AuditLog` is built on a
+`TenantRepository`, so it inherits EXPD-004 whole: entries are stamped with
+that organisation and reads are filtered by it, and the class has no way to
+ask for another. A NULL `organisation_id` means a platform-level action, and
+nothing widens a read to include those — writing one is EXPD-070's, along
+with the admin portal that would read them.
+
+**The entry names the caller, and the caller cannot say who they are.**
+`auditScope()` sits behind the auth middleware and builds the log from the
+token, so a handler is never given the chance to name somebody else:
+
+```ts
+router.post(
+  '/expeditions/:id/publish',
+  authenticate(service),
+  requirePermission('expedition:publish'),
+  tenantScope(db),
+  auditScope(),
+  async (request, response) => {
+    await auditOf(request).record('expedition.published', {
+      entityId: version.id,
+      before: { status: 'draft' },
+      after: { status: 'published' },
+    });
+  },
+);
+```
+
+`record` takes the action from a closed list — `AUDIT_ACTIONS`, which covers
+the scoring changes and the administrative actions this ticket asked for —
+and works out the entity type from it, because `expedition.published` is
+always about an `expedition_version` and an entry that said otherwise would
+be one nobody could join back to a row.
+
+Writing the entry inside the change's own transaction is
+`audit.withConnection(tx)`, so that neither can exist without the other.
+
+**What goes in `changes`, and what does not.** The note 0001 left on that
+column — "EXPD-006 decides how much of a row goes in here, and what has to be
+left out of it (EXPD-071)" — is answered in `apps/api/src/audit/redact.ts`.
+An entry is not a copy of the row. Only the columns that actually moved are
+recorded, and then:
+
+- a secret is never written down. A column whose name carries `password`,
+  `token`, `secret`, `credential` or a key is recorded as `[redacted]`, so
+  the entry still says the password changed without saying to what.
+- a child's details are not either (EXPD-071). On a `participant` or a
+  `submission`, the personal columns go the same way: the entry says the name
+  changed and writes down neither name. A student is always labelled by id,
+  whatever a caller passes, because the type offers no way to pass one.
+- a document — an expedition definition, a submission payload — becomes
+  `[not recorded]` rather than being copied, and a long string is cut short.
+  An entry should stay a line, not become an archive of data somebody may
+  later ask to have deleted.
+
+The tests are in `apps/api/test/audit/`:
+
+| File                    | What it holds to account                                  |
+| ----------------------- | --------------------------------------------------------- |
+| `append-only.test.ts`   | The triggers in the migration, and the repository refusal. |
+| `redaction.test.ts`     | Every secret and every child's detail that must not go in. |
+| `audit-log.test.ts`     | Which columns an entry carries, and how it is read back.   |
+| `vocabulary.test.ts`    | The shared action list against the real table registry.    |
+| `route-wiring.test.ts`  | All of it over HTTP, with a body claiming to be somebody.  |
+
+Two limits are worth knowing:
+
+1. `queryScoped` still runs whatever SQL a caller hands it. It checks the
+   statement mentions `organisation_id` and it does not parse it, so a
+   hand-written `UPDATE audit_log` would reach the database — where the
+   triggers refuse it. That is the belt the braces are there for.
+2. Nothing writes an entry yet, because nothing else has an endpoint to write
+   one from. Every ticket that adds one — EXPD-017, EXPD-031, EXPD-056,
+   EXPD-058, EXPD-070 — adds the `record` call its route needs, and the
+   action it needs is already in the list.
 
 ### Known gaps in `apps/student-mobile`
 

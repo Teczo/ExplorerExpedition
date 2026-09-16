@@ -18,6 +18,7 @@ dependency. Until a ticket picks one, apply the files in order with `psql`:
 createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
@@ -128,9 +129,35 @@ owns.
 ### Append-only tables
 
 `score_event`, `live_event` and `audit_log` are written once and never
-changed. They have no `updated_at` column and no trigger. Nothing yet stops
-an `UPDATE`; making that a rule the database enforces is EXPD-014 for scores
-and EXPD-006 for the audit log.
+changed. They have no `updated_at` column and no `updated_at` trigger.
+
+For `audit_log` that is now a rule the database keeps rather than a habit.
+`0003_append_only_audit_log.sql` attaches three triggers to it, so the only
+statement the table accepts is an `INSERT`:
+
+```
+UPDATE audit_log SET action = 'something else';
+ERROR:  audit_log is append-only: UPDATE is not allowed on it
+HINT:  Correct a wrong entry by appending another entry that says so.
+```
+
+`DELETE` and `TRUNCATE` are refused the same way, and all three raise
+SQLSTATE `X0006`. The triggers hold for every caller, the owner of the table
+included, which a `REVOKE` would not — and there is no role to revoke from
+until EXPD-007 creates one.
+
+That is also why `audit_log` has no foreign keys any more. 0001 gave
+`organisation_id`, `actor_user_id` and `actor_participant_id` an
+`ON DELETE SET NULL`, which is an `UPDATE` run by the database itself, so
+deleting an organisation would have failed against the rule above. 0003 drops
+all three and leaves the columns as plain uuids, for the reason `entity_id`
+already was one: an entry about something that has been deleted is exactly the
+entry somebody will want to read, and `actor_label` is there so that it still
+names somebody afterwards.
+
+`score_event` and `live_event` are deliberately untouched. Holding the score
+stream to the same rule is EXPD-014, and the function the triggers call is
+written to be reusable, so that ticket attaches it rather than writing it.
 
 ### Deletes
 

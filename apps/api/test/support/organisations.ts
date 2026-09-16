@@ -18,6 +18,7 @@ import type { OrganisationId } from '@explorer/shared-types';
 import {
   TABLE_NAMES,
   TABLE_SCOPES,
+  isAppendOnly,
   type GlobalTableName,
   type TableName,
   type TenantTableName,
@@ -40,6 +41,27 @@ export const ORG_EMPTY = '33333333-3333-4333-8333-333333333333' as OrganisationI
 export const TENANT_TABLES: readonly TenantTableName[] = TABLE_NAMES.filter(
   (table) => TABLE_SCOPES[table] !== 'global',
 ) as readonly TenantTableName[];
+
+/**
+ * Every tenant table whose rows can still be changed after they are written.
+ *
+ * The same list as `TENANT_TABLES` minus the append-only ones (EXPD-006). The
+ * update and delete tests loop over this, because an update against
+ * `audit_log` is refused before the isolation predicate is ever built, which
+ * is a different claim and has its own tests in `test/audit/`.
+ */
+export const WRITABLE_TENANT_TABLES: readonly TenantTableName[] =
+  TENANT_TABLES.filter((table) => !isAppendOnly(table));
+
+/**
+ * The tenant tables a row can only ever be added to.
+ *
+ * Read from the registry rather than written out, so that a table EXPD-014
+ * adds to it is covered by the refusal tests without anybody remembering to
+ * list it twice.
+ */
+export const APPEND_ONLY_TENANT_TABLES: readonly TenantTableName[] =
+  TENANT_TABLES.filter((table) => isAppendOnly(table));
 
 /** The tables that also hold platform-wide rows every organisation may read. */
 export const SHARED_TABLES: readonly TenantTableName[] = TABLE_NAMES.filter(
