@@ -143,8 +143,13 @@ HINT:  Correct a wrong entry by appending another entry that says so.
 
 `DELETE` and `TRUNCATE` are refused the same way, and all three raise
 SQLSTATE `X0006`. The triggers hold for every caller, the owner of the table
-included, which a `REVOKE` would not — and there is no role to revoke from
-until EXPD-007 creates one.
+included, which a `REVOKE` would not.
+
+There is now also a role to revoke from. `infra/sql/application-role.sql`
+(EXPD-007) creates `explorer_api`, the role the API signs in as, and does not
+grant it the `UPDATE` and `DELETE` the triggers would refuse — so the attempt
+fails at the permission check, one step before the rule that is the real
+guarantee.
 
 That is also why `audit_log` has no foreign keys any more. 0001 gave
 `organisation_id`, `actor_user_id` and `actor_participant_id` an

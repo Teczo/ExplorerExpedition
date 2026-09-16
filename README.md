@@ -18,6 +18,7 @@ This repository is a single npm workspace. Everything lives here.
 | `apps/student-mobile`    | React Native app students play on.                                      |
 | `packages/engine`        | Mission Engine. Game rules only — no database, no HTTP.                 |
 | `packages/shared-types`  | Types shared across apps and the engine.                                |
+| `infra`                  | The Azure baseline for dev and prod, as Bicep.                          |
 
 `packages/*` may not import from `apps/*`. Apps import from packages.
 
@@ -67,8 +68,9 @@ The phase-0 scaffold (EXPD-001) is in place: each app and package has a
 working build and a placeholder entry point. On top of it sit the Expedition
 Definition schema (EXPD-002), the database schema (EXPD-003), auth and
 organisation tenancy (EXPD-004), the cross-organisation isolation tests that
-hold EXPD-004 to its word (EXPD-005), and the append-only audit log
-(EXPD-006), all described below. The rest is tracked in its own tickets:
+hold EXPD-004 to its word (EXPD-005), the append-only audit log
+(EXPD-006), and the Azure baseline those all run on (EXPD-007), all described
+below. The rest is tracked in its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -379,6 +381,59 @@ Two limits are worth knowing:
    one from. Every ticket that adds one — EXPD-017, EXPD-031, EXPD-056,
    EXPD-058, EXPD-070 — adds the `record` call its route needs, and the
    action it needs is already in the list.
+
+### The Azure baseline
+
+`infra/` creates the environment the API runs in: a Linux App Service plan and
+web app, PostgreSQL Flexible Server with the `explorer` database, a storage
+account with a `media` container, Azure Cache for Redis, and a Key Vault
+holding the three secrets that join them up. It is Bicep, so it needs the
+Azure CLI and nothing from `npm install`. `infra/README.md` has the commands.
+
+There are two environments, `dev` and `prod`, and one template. What differs
+between them is size and nothing else — the same resources, the same wiring,
+the same settings, the same secret names — because an environment shaped
+differently from the one it stands in for has stopped standing in for it. The
+sizes are in `main.bicep`, so the two parameter files hold only a region and
+where the secrets come from.
+
+```bash
+az group create --name rg-explorer-dev --location westeurope
+az deployment group create \
+  --resource-group rg-explorer-dev \
+  --template-file infra/main.bicep \
+  --parameters infra/main.dev.bicepparam
+```
+
+**Nothing holds a key it does not need.** Storage has `allowSharedKeyAccess`
+off, so its two account keys do not work at all and the web app reaches blobs
+as itself, with a managed identity granted Storage Blob Data Contributor. That
+is also what EXPD-021 needs, because the user delegation key that signs an
+upload URL comes from an identity and not from a key. PostgreSQL and Redis do
+need a connection string, so those are Key Vault secrets and the app settings
+are references — `@Microsoft.KeyVault(VaultName=...;SecretName=...)` — resolved
+by the app with the same identity, granted Key Vault Secrets User and nothing
+more. `AUTH_TOKEN_SECRET` arrives the same way, which is what the note in
+`apps/api/src/config/auth-config.ts` has been pointing at since EXPD-004.
+
+**The API does not sign in as the administrator.** The administrator owns the
+schema and applies the migrations; the API reads and writes rows in tables that
+already exist. `infra/sql/application-role.sql` creates the `explorer_api` role
+that does the second job, and the connection string in the vault is that one.
+It is also where `audit_log` finally gets the grant migration 0003 said a later
+ticket would have to create: the role is not given the `UPDATE` and `DELETE`
+the triggers would refuse anyway.
+
+Four things this baseline is deliberately not, written down in
+`infra/README.md` rather than left to be found: there is no private
+networking, no monitoring, nothing that deploys code into the web app
+(EXPD-008), and nothing for the three React apps, which the stack puts on
+Vercel.
+
+One limit is worth knowing. Nothing in `npm run test` reads these files,
+because the tool that would check them is the Azure CLI and `npm install` does
+not install it. `az deployment group what-if` is the review before a
+deployment, and EXPD-008 is where it could become an automatic one.
 
 ### Known gaps in `apps/student-mobile`
 
