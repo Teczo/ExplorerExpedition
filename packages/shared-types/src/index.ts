@@ -43,6 +43,15 @@ export type AppName = (typeof APP_NAMES)[number];
 export * from './expedition/index.ts';
 
 /**
+ * The mission type vocabulary (EXPD-009).
+ *
+ * What a mission type is, the schema language it describes its settings with,
+ * and the checks that run over both. Re-exported for the same reason as the
+ * Expedition Definition above.
+ */
+export * from './mission-type/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the

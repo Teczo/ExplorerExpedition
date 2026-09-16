@@ -78,10 +78,11 @@ working build and a placeholder entry point. On top of it sit the Expedition
 Definition schema (EXPD-002), the database schema (EXPD-003), auth and
 organisation tenancy (EXPD-004), the cross-organisation isolation tests that
 hold EXPD-004 to its word (EXPD-005), the append-only audit log
-(EXPD-006), the Azure baseline those all run on (EXPD-007), and the pipeline
-that builds, checks and deploys the lot (EXPD-008), all described below. The rest is tracked in its own tickets:
+(EXPD-006), the Azure baseline those all run on (EXPD-007), the pipeline
+that builds, checks and deploys the lot (EXPD-008), and the mission type
+registry the engine is built around (EXPD-009), all described below. The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-009 to EXPD-015
+- Mission Engine behaviour — EXPD-010 to EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -115,7 +116,8 @@ sets out the compatibility rules.
 parts point at each other: unknown ids, a mission no node uses, a graph with no
 start, a node nothing can reach, a loop. It does not check
 `MissionInstance.config`, because only the mission type knows the right shape
-for that (EXPD-009).
+for that. The mission type registry below is what checks it, and running both
+is what fully checks a document.
 
 There are no automated tests for it yet. The test runner is now in place —
 see the isolation tests below — but writing tests for this schema is not part
@@ -508,6 +510,111 @@ Five things the pipeline is deliberately not — no infrastructure deployment, n
 migrations, no rollback, no gate in front of `dev`, and no check after a deploy
 beyond `/health` — are written down at the end of `docs/ci.md` rather than left
 to be found.
+
+### The mission type registry
+
+A *mission type* is the kind of task: scan a QR code, take a photo, count the
+birds. A *mission instance* (EXPD-002) is one use of a type inside one
+expedition. `packages/engine/src/mission-types/` is the one place that maps a
+type key and version to three things — the schema its settings have to match,
+the rules that check them, and the runtime behaviour that judges a submission.
+
+The reason it exists is what is *not* in it. Nothing in the engine knows what
+a QR hunt is. Adding a mission type — EXPD-032 to EXPD-039, or whatever a
+creator builds in the Studio — is a call to `register`, not a change to the
+engine, and `packages/engine/test/plug-in.test.ts` reads the engine's own
+source on every run to keep it that way.
+
+```ts
+import { createMissionTypeRegistry } from '@explorer/engine';
+
+const registry = createMissionTypeRegistry([qrHunt, photoEvidence]);
+
+// The check EXPD-002 said only the registry could do.
+const result = registry.validateExpedition(definition);
+if (!result.valid) {
+  // `missions[2].config.codes[0].value`, the same path shape EXPD-002 uses.
+  return reply.status(400).send({ issues: result.issues });
+}
+```
+
+**A mission type is a row, and sometimes also some code.** The half that can
+be written down — key, version, name, status, capabilities, the two schemas,
+the starting settings — is `MissionTypeDefinition` in
+`packages/shared-types/src/mission-type/`, and it is the `mission_type` row
+from migration 0001 field for field. It is in `shared-types` rather than the
+engine because the Studio, the API, the AI builder and the student app all
+read a mission type, and none of them should need the engine to do it.
+
+The half that cannot be written down is `MissionTypeBehaviour`, which is in
+the engine. A type built in the Studio (EXPD-025) has no behaviour at all: it
+is a row, so it can be configured, stored and checked, but it cannot decide an
+attempt and is reviewed by a teacher instead. A behaviour has to be pure, so
+that replaying an attempt and simulating a run (EXPD-015) give the same
+answer twice.
+
+This ticket defines that slot and nothing more. The registry holds a
+behaviour and hands it over; it never calls one. Who calls it is the state
+machine (EXPD-010), the fuller completion interface is EXPD-011, and turning
+an outcome into points is the scoring engine (EXPD-012).
+
+**`config_schema` is a written-down subset of JSON Schema.** Migration 0001
+says the column holds a JSON Schema, and "a JSON Schema" is not on its own a
+contract the Mission Type Builder can draw a form for. So
+`packages/shared-types/src/mission-type/config-schema.ts` lists exactly the
+keywords the platform runs — draft 2020-12, twenty-five of them, covering
+objects, lists, strings, numbers, `enum` and `const`.
+
+A schema using anything else is **refused, not ignored**, because a mission
+type that looks checked and is not is worse than a schema the Studio will not
+save. Three things are deliberately outside the subset, each its own piece of
+work: `$ref` and `$defs`, the combinators `oneOf`, `anyOf`, `allOf` and `not`,
+and `format`. The validator is written by hand and pulls in no library, the
+same rule EXPD-002 follows, so the student app can check a config with nothing
+installed.
+
+One deviation from JSON Schema is on purpose and worth knowing:
+`additionalProperties` defaults to **false**, not true. A mission config is
+written in the Studio and generated by the AI builder, and a misspelled field
+that is quietly accepted is a mission that does nothing on the day out. A
+schema that really holds open-ended data says `additionalProperties: true`.
+
+**A type is checked once, when it is registered.** Both schemas are checked
+keyword by keyword, the starting settings are run against the type's own
+config schema, the capabilities are checked against the closed list, and the
+key and version are checked against the shapes the `mission_type` columns
+require. A type that could never work fails when the process starts rather
+than on the day a class is standing in a field. Registering a key and version
+already held is refused too — the whole reason an expedition pins a version is
+that the thing behind it cannot move underneath it.
+
+**There is no shared registry.** The class is instantiated, never reached
+through a module-level singleton, because an organisation's own Studio-built
+types belong to that organisation alone and because a global is state the
+simulation harness could not isolate between runs.
+
+The tests are in `packages/engine/test/` and
+`packages/shared-types/test/mission-type/`:
+
+| File                       | What it holds to account                                   |
+| -------------------------- | ---------------------------------------------------------- |
+| `config-schema.test.ts`    | Every keyword outside the subset, refused and named.        |
+| `validate-config.test.ts`  | A value against a schema, and where a problem is reported.  |
+| `definition.test.ts`       | What a mission type has to be before it can be registered.  |
+| `registry.test.ts`         | Holding types, versions, and what it will not hold.         |
+| `registry-validation.test.ts` | Missions and whole expeditions against their types.      |
+| `plug-in.test.ts`          | That a new type needs no engine change, by reading the source. |
+
+Two limits are worth knowing:
+
+1. A `pattern` is compiled from whatever the mission type author wrote, and a
+   regular expression can be written that takes a very long time on a crafted
+   input. That is a creator holding up their own organisation's Studio rather
+   than a student reaching anything, so the platform compiles what it is given.
+2. Nothing loads a mission type from the database yet, because nothing opens a
+   connection (EXPD-016). The registry takes types from whoever builds it, and
+   the row shape is already the shape it takes, so reading them is a query and
+   a loop rather than a translation.
 
 ### Known gaps in `apps/student-mobile`
 
