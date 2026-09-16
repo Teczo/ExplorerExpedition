@@ -19,6 +19,8 @@ This repository is a single npm workspace. Everything lives here.
 | `packages/engine`        | Mission Engine. Game rules only — no database, no HTTP.                 |
 | `packages/shared-types`  | Types shared across apps and the engine.                                |
 | `infra`                  | The Azure baseline for dev and prod, as Bicep.                          |
+| `scripts`                | Builds the deployment package for the API and for a web app.            |
+| `.github/workflows`      | The build, lint, test and deploy pipeline.                              |
 
 `packages/*` may not import from `apps/*`. Apps import from packages.
 
@@ -56,6 +58,13 @@ Run these from the repository root.
 | `npm run dev:student-mobile` | Starts the Metro bundler.                       |
 | `npm run clean`              | Removes `node_modules` and all build output.     |
 
+And the two the pipeline runs, which work the same on your own machine:
+
+| Command                          | What it does                                |
+| -------------------------------- | ------------------------------------------- |
+| `scripts/package-api.sh`         | Builds the zip App Service runs, and checks it. |
+| `scripts/package-web.sh studio`  | Builds what Vercel serves, for one app.     |
+
 Check the API is up:
 
 ```bash
@@ -69,8 +78,8 @@ working build and a placeholder entry point. On top of it sit the Expedition
 Definition schema (EXPD-002), the database schema (EXPD-003), auth and
 organisation tenancy (EXPD-004), the cross-organisation isolation tests that
 hold EXPD-004 to its word (EXPD-005), the append-only audit log
-(EXPD-006), and the Azure baseline those all run on (EXPD-007), all described
-below. The rest is tracked in its own tickets:
+(EXPD-006), the Azure baseline those all run on (EXPD-007), and the pipeline
+that builds, checks and deploys the lot (EXPD-008), all described below. The rest is tracked in its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -424,16 +433,81 @@ It is also where `audit_log` finally gets the grant migration 0003 said a later
 ticket would have to create: the role is not given the `UPDATE` and `DELETE`
 the triggers would refuse anyway.
 
-Four things this baseline is deliberately not, written down in
+Three things this baseline is deliberately not, written down in
 `infra/README.md` rather than left to be found: there is no private
-networking, no monitoring, nothing that deploys code into the web app
-(EXPD-008), and nothing for the three React apps, which the stack puts on
-Vercel.
+networking, no monitoring, and nothing for the three React apps, which the
+stack puts on Vercel. The fourth — nothing that deploys code into the web
+app — is what EXPD-008 answered, below.
 
 One limit is worth knowing. Nothing in `npm run test` reads these files,
 because the tool that would check them is the Azure CLI and `npm install` does
-not install it. `az deployment group what-if` is the review before a
-deployment, and EXPD-008 is where it could become an automatic one.
+not install it. `az deployment group what-if` is still the review before a
+deployment, and still a manual one: EXPD-008 deploys the API and the web
+apps, not the infrastructure under them.
+
+### The pipeline
+
+`.github/workflows/ci.yml` is the one that builds, checks and deploys all of
+the above. `docs/ci.md` is its own page; this is the shape of it.
+
+One workflow holds every stage, because the ordering is the point. `needs` is
+the only way to say "do not deploy this unless it passed" that GitHub
+enforces, and it only reaches inside one workflow. A pull request runs `lint`,
+`test`, `build-api` and `build-web` in parallel. A push to `main` runs the same
+four and then deploys to `dev`. `prod` is only ever reached by starting a run
+by hand.
+
+Nothing is built twice. The deploy jobs take the artefact the build jobs
+uploaded, so what ships is the thing that was checked and not a second build of
+the same commit that nobody looked at.
+
+**`lint` runs `tsc`, and `tsc` is not a linter.** There is no ESLint here,
+because adding one is adding a dependency and no ticket has been allowed to —
+the same rule that left the React Native CLI out of `apps/student-mobile` and a
+migration runner out of `apps/api/db`. What it does catch is real:
+`tsconfig.base.json` turns on `noUnusedLocals`, `noUnusedParameters`,
+`noFallthroughCasesInSwitch` and `noUncheckedIndexedAccess`, so an unused
+import or a `switch` that falls through already fails. What is missing is style
+and habit — import order, `no-console`, React hook dependencies. `docs/ci.md`
+says what closing that would take.
+
+**A package is proved before it is pushed.** `scripts/package-api.sh` builds
+the zip App Service runs, then starts it and asks it for `/health`. App Service
+mounts that zip read-only and installs nothing (EXPD-007 set
+`WEBSITE_RUN_FROM_PACKAGE` to 1 and `SCM_DO_BUILD_DURING_DEPLOYMENT` to false),
+so the package has to arrive whole — which means no symlinks, because npm links
+a workspace into `node_modules` rather than copying it, and a mounted zip will
+not resolve one. The script replaces the three `@explorer/*` links with real
+directories and fails if a symlink is left anywhere. It also scopes the
+production install to `@explorer/api`, so the tree is express and what express
+needs rather than `react-native`, which belongs to a workspace with nothing to
+do with the API. The result is 1.6 MB.
+
+Both scripts run the same on your own machine, with no Azure and no Vercel
+involved:
+
+```bash
+scripts/package-api.sh          # build, stage, start it, check /health, zip
+scripts/package-web.sh studio   # creator-web | studio | admin
+```
+
+**The three React apps are built here and served there.** `deploy-web` uploads
+a finished `.vercel/output` and passes `--prebuilt`, so Vercel runs no build of
+its own. Vercel building them would be a second build, on a different machine,
+from a different install — and the thing that shipped would not be the thing CI
+checked.
+
+**A deploy skips itself, loudly, when its environment has no settings.** A
+clone of this repository has no Azure subscription and no Vercel project behind
+it. A pipeline that went red over that would be reporting on the repository's
+settings rather than on its code, so instead the job stays green and the run
+summary names every variable and secret that was missing. `docs/ci.md` lists
+them, and how the Azure sign-in is federated rather than a stored password.
+
+Five things the pipeline is deliberately not — no infrastructure deployment, no
+migrations, no rollback, no gate in front of `dev`, and no check after a deploy
+beyond `/health` — are written down at the end of `docs/ci.md` rather than left
+to be found.
 
 ### Known gaps in `apps/student-mobile`
 

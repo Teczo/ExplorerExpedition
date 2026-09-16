@@ -1,0 +1,351 @@
+# The build, lint, test and deploy pipeline (EXPD-008).
+#
+# One workflow rather than two, because the ordering is the point: nothing
+# deploys that has not been checked, and `needs` is the only way to say so
+# that GitHub enforces. A separate deploy workflow would have to be trusted
+# to have waited.
+#
+# What runs when:
+#
+#   pull request  -> lint, test, build. Nothing deploys.
+#   push to main  -> the same, and then a deploy to dev.
+#   manually      -> the same, and then a deploy to the environment chosen.
+#
+# The deploy jobs skip themselves, loudly, when the environment they would
+# deploy to has not been configured yet. A fresh clone of this repository has
+# no Azure subscription and no Vercel project behind it, and a pipeline that
+# went red over that would be reporting on the repository's settings rather
+# than on its code. What the jobs need is in `docs/ci.md`.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Which environment to deploy to.
+        type: choice
+        options: [dev, prod]
+        default: dev
+
+# A second push to the same branch makes the first one's answer stale. On a
+# pull request that run is cancelled; on main it is not, because a deploy
+# killed halfway is worse than a slow queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # `inputs` is empty unless the run was started by hand, so a push to main
+  # deploys to dev.
+  TARGET_ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # This is the whole of the repository's static analysis today, and it is
+      # not a linter. There is no ESLint and no Prettier here, because adding
+      # one means adding a dependency and no ticket has been allowed to.
+      #
+      # `tsconfig.base.json` does cover the ground a linter's default rules
+      # cover — `noUnusedLocals`, `noUnusedParameters`,
+      # `noFallthroughCasesInSwitch`, `noUncheckedIndexedAccess` and `strict`
+      # — so an unused import or an unhandled case fails here. What it cannot
+      # see is style and the rules that are about habit rather than types.
+      # `docs/ci.md` says what adding a linter would take.
+      - name: Type-check every workspace
+        run: npm run typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # `node --test` over TypeScript that Node runs directly. No database and
+      # no service: the tests stand fakes in for one (EXPD-005), so this needs
+      # nothing the runner does not already have.
+      - name: Run the tests
+        run: npm run test
+
+  build-api:
+    name: Build the API package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Builds the zip App Service runs, and proves it by starting it and
+      # asking /health. A package that cannot serve its own health check
+      # fails here, where it costs a red job, rather than after a deployment,
+      # where it costs an environment.
+      - name: Build and verify the package
+        run: scripts/package-api.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-package
+          path: dist-deploy/api.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  build-web:
+    name: Build ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [creator-web, studio, admin]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build and verify the package
+        run: scripts/package-web.sh ${{ matrix.app }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-${{ matrix.app }}
+          path: dist-deploy/web/${{ matrix.app }}/.vercel/output
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy-api:
+    name: Deploy the API
+    needs: [lint, test, build-api]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    permissions:
+      contents: read
+      # Azure is signed in to with a federated token rather than a stored
+      # secret, which is the same reasoning EXPD-007 applied to the web app's
+      # managed identity: nothing holds a credential it does not need.
+      id-token: write
+    steps:
+      - name: Check this environment is configured
+        id: preflight
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_API_APP_NAME }}
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          missing=()
+          [[ -n "$RESOURCE_GROUP" ]]   || missing+=("AZURE_RESOURCE_GROUP (variable)")
+          [[ -n "$APP_NAME" ]]         || missing+=("AZURE_API_APP_NAME (variable)")
+          [[ -n "$CLIENT_ID" ]]        || missing+=("AZURE_CLIENT_ID (secret)")
+          [[ -n "$TENANT_ID" ]]        || missing+=("AZURE_TENANT_ID (secret)")
+          [[ -n "$SUBSCRIPTION_ID" ]]  || missing+=("AZURE_SUBSCRIPTION_ID (secret)")
+
+          if (( ${#missing[@]} == 0 )); then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo 'configured=false' >> "$GITHUB_OUTPUT"
+          {
+            echo "### The API was not deployed"
+            echo
+            echo "Environment \`$TARGET_ENVIRONMENT\` is missing:"
+            echo
+            printf -- '- `%s`\n' "${missing[@]}"
+            echo
+            echo 'See `docs/ci.md`. The package was still built and verified.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/download-artifact@v4
+        if: steps.preflight.outputs.configured == 'true'
+        with:
+          name: api-package
+
+      - uses: azure/login@v2
+        if: steps.preflight.outputs.configured == 'true'
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # `WEBSITE_RUN_FROM_PACKAGE` is 1 and `SCM_DO_BUILD_DURING_DEPLOYMENT`
+      # is false (EXPD-007), so this hands over a finished zip and App Service
+      # mounts it. Nothing is installed or compiled on the far side.
+      - name: Push the package to App Service
+        if: steps.preflight.outputs.configured == 'true'
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_API_APP_NAME }}
+        run: |
+          az webapp deploy \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$APP_NAME" \
+            --src-path api.zip \
+            --type zip \
+            --restart true
+
+      # The deployment reporting success means the zip arrived. Whether the
+      # API came up is a different question, and this is the one that answers
+      # it — the same check EXPD-007 said would only start passing once this
+      # ticket had run.
+      - name: Check /health answers
+        if: steps.preflight.outputs.configured == 'true'
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          APP_NAME: ${{ vars.AZURE_API_APP_NAME }}
+        run: |
+          host="$(az webapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$APP_NAME" \
+            --query defaultHostName -o tsv)"
+          url="https://$host/health"
+
+          # An App Service that has just been restarted answers 503 for a
+          # while before it answers anything else.
+          for attempt in $(seq 1 30); do
+            body="$(curl -fsS --max-time 10 "$url" || true)"
+            if [[ "$body" == *'"status":"ok"'* ]]; then
+              echo "$url -> $body"
+              {
+                echo "### The API is up"
+                echo
+                echo "\`$url\` answered \`$body\`"
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $attempt: no answer yet"
+            sleep 10
+          done
+
+          echo "::error::$url never answered with status ok."
+          exit 1
+
+  deploy-web:
+    name: Deploy ${{ matrix.app }}
+    needs: [lint, test, build-web]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: creator-web
+            project_id_secret: VERCEL_PROJECT_ID_CREATOR_WEB
+          - app: studio
+            project_id_secret: VERCEL_PROJECT_ID_STUDIO
+          - app: admin
+            project_id_secret: VERCEL_PROJECT_ID_ADMIN
+    steps:
+      - name: Check this environment is configured
+        id: preflight
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets[matrix.project_id_secret] }}
+        run: |
+          missing=()
+          [[ -n "$VERCEL_TOKEN" ]]      || missing+=("VERCEL_TOKEN (secret)")
+          [[ -n "$VERCEL_ORG_ID" ]]     || missing+=("VERCEL_ORG_ID (secret)")
+          [[ -n "$VERCEL_PROJECT_ID" ]] || missing+=("${{ matrix.project_id_secret }} (secret)")
+
+          if (( ${#missing[@]} == 0 )); then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo 'configured=false' >> "$GITHUB_OUTPUT"
+          {
+            echo "### ${{ matrix.app }} was not deployed"
+            echo
+            echo "Environment \`$TARGET_ENVIRONMENT\` is missing:"
+            echo
+            printf -- '- `%s`\n' "${missing[@]}"
+            echo
+            echo 'See `docs/ci.md`. The package was still built and verified.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/download-artifact@v4
+        if: steps.preflight.outputs.configured == 'true'
+        with:
+          name: web-${{ matrix.app }}
+          path: .vercel/output
+
+      # Pinned here rather than read from `.nvmrc`: this job never checks
+      # the repository out, so there is no `.nvmrc` on disk to read. It runs
+      # the Vercel CLI against a downloaded artifact and nothing else.
+      - uses: actions/setup-node@v5
+        if: steps.preflight.outputs.configured == 'true'
+        with:
+          node-version: 22
+
+      # The Vercel CLI is fetched here and not added to `package.json`, for
+      # the same reason the Azure CLI is not in it: it is a tool this pipeline
+      # runs, not something the platform imports. It is pinned so that a
+      # deploy is not at the mercy of whatever was published this morning.
+      #
+      # `--prebuilt` uploads the `.vercel/output` that `build-web` produced
+      # and runs no build, so what ships is the build that was checked.
+      - name: Deploy to Vercel
+        if: steps.preflight.outputs.configured == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets[matrix.project_id_secret] }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          # prod gets Vercel's production deployment; dev gets a preview one,
+          # which is the same build on a URL nobody has been given.
+          target=()
+          if [[ "$TARGET_ENVIRONMENT" == 'prod' ]]; then
+            target=(--prod)
+          fi
+
+          url="$(npx --yes vercel@48.2.0 deploy \
+            --prebuilt \
+            --archive=tgz \
+            --token "$VERCEL_TOKEN" \
+            --yes \
+            "${target[@]}")"
+
+          echo "$url"
+          {
+            echo "### ${{ matrix.app }} is deployed"
+            echo
+            echo "$url"
+          } >> "$GITHUB_STEP_SUMMARY"

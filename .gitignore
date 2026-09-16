@@ -6,6 +6,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# deployment packages (scripts/package-api.sh, scripts/package-web.sh)
+dist-deploy/
+
 # vite
 .vite/
 
