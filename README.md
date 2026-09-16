@@ -47,6 +47,7 @@ Run these from the repository root.
 | `npm run build`              | Builds packages, then every app.                |
 | `npm run build:packages`     | Builds `shared-types` and `engine` only.        |
 | `npm run typecheck`          | Type-checks every workspace.                    |
+| `npm run test`               | Runs the automated tests.                       |
 | `npm run dev:api`            | API on http://localhost:3000                    |
 | `npm run dev:creator-web`    | Creator web on http://localhost:5173            |
 | `npm run dev:studio`         | Studio on http://localhost:5174                 |
@@ -64,9 +65,10 @@ curl http://localhost:3000/health
 
 The phase-0 scaffold (EXPD-001) is in place: each app and package has a
 working build and a placeholder entry point. On top of it sit the Expedition
-Definition schema (EXPD-002), the database schema (EXPD-003), and auth and
-organisation tenancy (EXPD-004), all described below. The rest is tracked in
-its own tickets:
+Definition schema (EXPD-002), the database schema (EXPD-003), auth and
+organisation tenancy (EXPD-004), and the cross-organisation isolation tests
+that hold EXPD-004 to its word (EXPD-005), all described below. The rest is
+tracked in its own tickets:
 
 - Mission Engine behaviour — EXPD-009 to EXPD-015
 - REST API skeleton — EXPD-016
@@ -104,8 +106,9 @@ start, a node nothing can reach, a loop. It does not check
 `MissionInstance.config`, because only the mission type knows the right shape
 for that (EXPD-009).
 
-There are no automated tests for it yet. The repository has no test runner, and
-adding one is EXPD-008.
+There are no automated tests for it yet. The test runner is now in place —
+see the isolation tests below — but writing tests for this schema is not part
+of any ticket that has been done.
 
 ### The database schema
 
@@ -182,7 +185,8 @@ There are two ways out, and both are loud. `includeSharedRows` widens *reads*
 to the platform-wide mission types, templates and badges; it never widens a
 write. `GlobalRepository` reaches the four tables that belong to no
 organisation — `organisation`, `app_user`, `user_credential`, `auth_session` —
-and makes each call state a reason. Testing all of this is EXPD-005.
+and makes each call state a reason. What holds all of that to its word is
+EXPD-005, below.
 
 **Passwords and tokens** are built on `node:crypto` alone: scrypt for
 passwords, HMAC-SHA256 for access tokens, and 256 random bits for refresh and
@@ -210,6 +214,69 @@ createApp({ db: new Pool({ connectionString: process.env.DATABASE_URL }) });
 ```
 
 Until then `createApp()` serves the health check, exactly as before.
+
+### Cross-organisation isolation tests
+
+`apps/api/test/isolation/` is the proof that the paragraph above is true. Every
+claim EXPD-004 makes about tenancy has a test that tries to break it.
+
+```bash
+npm run test
+```
+
+The runner is Node's own `node --test`, and the tests are TypeScript that Node
+runs directly, the same way `npm run dev:api` runs the API. No dependency was
+added, and nothing has to be installed to run them.
+
+**They need no database.** Two fakes stand in for one, in `test/support/`, and
+they do different jobs:
+
+- `FakeDatabase` keeps rows in memory and really runs the statements the
+  repository layer builds against them. It filters nothing itself, so a row
+  that fails to come back was held back by the code under test and nothing
+  else. A statement outside the small grammar `src/db/sql.ts` produces makes it
+  throw, rather than quietly matching nothing and passing for the wrong reason.
+- `RecordingDatabase` answers from a script and remembers the questions. It is
+  for the statements written by hand — the membership join, for one — where
+  what matters is that the organisation reached the statement as a bound value.
+
+Most tests are the same experiment. Put a row in for Portside School and a row
+in for Riverbank Academy, act as one of them, and check the other one's row is
+neither returned nor changed. That runs over **every** tenant-scoped table
+rather than a chosen few, because the predicate is attached per table and a
+table nobody thought about is how a leak would arrive.
+
+| File                        | What it holds to account                                      |
+| --------------------------- | ------------------------------------------------------------- |
+| `table-registry.test.ts`    | `TABLE_SCOPES` against the migrations themselves.             |
+| `tenant-reads.test.ts`      | No read reaches another organisation, on any table.           |
+| `tenant-writes.test.ts`     | No insert, update or delete does either.                      |
+| `shared-rows.test.ts`       | `includeSharedRows` widens reads, and only reads.             |
+| `hand-written-sql.test.ts`  | `readPredicate`, `writePredicate` and `queryScoped`.          |
+| `global-repository.test.ts` | The hole is four tables wide, and no wider.                   |
+| `device-tokens.test.ts`     | A phone's token is looked up inside one organisation.         |
+| `access-tokens.test.ts`     | The organisation is inside the signature.                     |
+| `auth-service.test.ts`      | No token is minted for an organisation nobody belongs to.     |
+| `request-pipeline.test.ts`  | All of it end to end, over HTTP, with hostile headers.        |
+
+`table-registry.test.ts` is the one that does not use a fake at all. It parses
+every `CREATE TABLE` in `apps/api/db/migrations/` and compares it with
+`TABLE_SCOPES`, so a migration that adds a table without registering it fails
+on the commit that adds it — which matters, because an unregistered table is
+one that nothing scopes.
+
+Two limits are worth knowing, and both are written down as tests rather than
+left to be discovered:
+
+1. `queryScoped` checks that a hand-written statement mentions
+   `organisation_id`. It is a guard rail against forgetting the predicate, not
+   a parser, and it cannot tell a predicate in the right place from one in the
+   wrong place.
+2. These tests exercise the repository layer, not PostgreSQL. They prove the
+   statements the API builds carry the isolation predicate and behave as
+   intended; they do not prove the database would refuse a statement that did
+   not. Row-level security would be that second belt, and no ticket has asked
+   for one.
 
 ### Known gaps in `apps/student-mobile`
 
