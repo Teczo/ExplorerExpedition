@@ -81,6 +81,16 @@ export * from './completion/index.ts';
 export * from './scoring/index.ts';
 
 /**
+ * The progression vocabulary (EXPD-013).
+ *
+ * What the expedition looks like to one team: the stops they have reached,
+ * the missions they may work on, and what is holding the rest up. The rules
+ * that work one out are the progression engine in `@explorer/engine`.
+ * Re-exported for the same reason as the five above.
+ */
+export * from './progression/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the

@@ -5,7 +5,9 @@
  * may carry a condition, which is the thing that has to be true before the
  * stop it points at opens up.
  *
- * This file describes those conditions. Working out whether one is true is
+ * This file describes those conditions, which stops a team may walk past
+ * without finishing, which ones stay hidden until they open, and which teams
+ * an edge is for. Working out what all of that comes to for one team is
  * progression work (EXPD-013), and drawing the graph is EXPD-026. Neither
  * belongs here.
  */
@@ -14,6 +16,7 @@ import type {
   EdgeId,
   MissionInstanceId,
   NodeId,
+  RouteId,
   Seconds,
 } from './common.ts';
 
@@ -69,6 +72,35 @@ export const UNLOCK_CONDITION_TYPES = [
   'not',
 ] as const;
 
+/**
+ * Which teams an edge is for.
+ *
+ * An expedition may send two halves of a class different ways. Rather than
+ * holding two graphs, one graph holds both, and each edge says who may take
+ * it. A team walks the edges its route is named on, plus every edge that is
+ * for everybody.
+ *
+ * The routes themselves are listed on the expedition's rules. Which route a
+ * team is on is decided when teams are made (EXPD-018).
+ */
+export type EdgeAudience =
+  /** Every team may take it. The same as leaving the audience out. */
+  | { kind: 'all' }
+  /**
+   * Only teams on one of these routes may take it.
+   *
+   * Must name at least one route, and every route named must be listed in
+   * `ExpeditionRules.routes`. An empty list would be an edge nobody can take,
+   * which is a deleted edge written the long way round.
+   */
+  | { kind: 'routes'; routeIds: RouteId[] };
+
+/** The `kind` of an edge audience. */
+export type EdgeAudienceKind = EdgeAudience['kind'];
+
+/** Every edge audience kind, in the order they are listed above. */
+export const EDGE_AUDIENCE_KINDS = ['all', 'routes'] as const;
+
 /** Where a node sits on the Studio canvas (EXPD-026). */
 export interface NodeLayout {
   x: number;
@@ -100,7 +132,36 @@ export type ExpeditionNode =
    */
   | (NodeBase & { kind: 'start' })
   /** A stop that holds one mission. */
-  | (NodeBase & { kind: 'mission'; missionInstanceId: MissionInstanceId })
+  | (NodeBase & {
+      kind: 'mission';
+      missionInstanceId: MissionInstanceId;
+      /**
+       * Whether a team may walk past it without finishing it.
+       *
+       * An optional mission never holds a team up: the stops after it open as
+       * soon as the team arrives, whatever the team did about the mission
+       * itself. Left out means the same as false, so a mission blocks the way
+       * unless the author says otherwise.
+       *
+       * It is different from `ExpeditionRules.allowSkip`, which is about a
+       * team choosing to give up on a mission that was in their way. This is
+       * the author saying it was never in the way.
+       */
+      optional?: boolean;
+      /**
+       * Whether the team is told it exists before it opens.
+       *
+       * A secret mission is not on the mission board while it is locked: the
+       * team does not see it, and does not see that something is missing.
+       * Once its unlock condition holds it appears like any other mission,
+       * and it stays visible from then on. Left out means the same as false.
+       *
+       * It changes what a team is shown, never what unlocks. A secret mission
+       * with no condition in front of it is open from the start, and so is
+       * visible from the start.
+       */
+      secret?: boolean;
+    })
   /**
    * A stop that holds no mission.
    *
@@ -140,6 +201,12 @@ export interface ExpeditionEdge {
    * Left out means the same as `{ type: 'always' }`.
    */
   condition?: UnlockCondition;
+  /**
+   * Which teams may take it.
+   *
+   * Left out means the same as `{ kind: 'all' }`.
+   */
+  audience?: EdgeAudience;
   /** A label drawn on the edge in the Studio. Has no effect on play. */
   label?: string;
 }

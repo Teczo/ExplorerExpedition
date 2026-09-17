@@ -31,6 +31,16 @@ export type EdgeId = Id<'edge'>;
 /** The id of one mission placed inside an expedition. */
 export type MissionInstanceId = Id<'missionInstance'>;
 
+/**
+ * The id of one route through the expedition.
+ *
+ * A route is a named way through the graph that only some teams walk. The
+ * routes an expedition has are listed in `rules.ts`, and an edge says which
+ * of them may take it. Which route a team is on is decided when teams are
+ * made (EXPD-018), not here.
+ */
+export type RouteId = Id<'route'>;
+
 /** The id of one scoring rule. */
 export type ScoringRuleId = Id<'scoringRule'>;
 

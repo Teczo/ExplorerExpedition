@@ -30,8 +30,14 @@
  * A reader must accept any document whose major number it knows about and
  * whose minor number is at or below its own. `isReadableSchemaVersion` below
  * applies that rule.
+ *
+ * 1.1.0 added three optional fields, all of them progression's (EXPD-013):
+ * `optional` and `secret` on a mission node, `audience` on an edge, and the
+ * `routes` an audience names on the expedition's rules. A 1.0.0 document is
+ * still a valid 1.1.0 one, and reads as an expedition with no routes where
+ * every mission blocks the way and none is hidden.
  */
-export const EXPEDITION_SCHEMA_VERSION = '1.0.0';
+export const EXPEDITION_SCHEMA_VERSION = '1.1.0';
 
 /**
  * The major versions this build can read.

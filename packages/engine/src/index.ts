@@ -21,8 +21,11 @@
  * points and writes down every change it makes, so a team's total is always
  * the sum of the reasons behind it.
  *
+ * Progression and unlock evaluation (EXPD-013) is in `./progression`. It is
+ * what the graph comes to for one team: where they have got to, which
+ * missions the lock is off, and which ones they are shown at all.
+ *
  * The rest arrives in later tickets:
- *   EXPD-013  progression and unlock evaluation
  *   EXPD-014  auditable score event stream
  *   EXPD-015  simulation harness
  */
@@ -33,6 +36,7 @@ export * from './mission-types/index.ts';
 export * from './mission-state/index.ts';
 export * from './completion/index.ts';
 export * from './scoring/index.ts';
+export * from './progression/index.ts';
 
 /** The version of the engine contract that callers are talking to. */
 export const ENGINE_VERSION = '0.1.0';
