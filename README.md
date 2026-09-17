@@ -81,11 +81,12 @@ hold EXPD-004 to its word (EXPD-005), the append-only audit log
 (EXPD-006), the Azure baseline those all run on (EXPD-007), the pipeline
 that builds, checks and deploys the lot (EXPD-008), the mission type
 registry the engine is built around (EXPD-009), the mission state machine
-that says where a team stands on a mission (EXPD-010), and the completion and
-validation interface every finished mission comes through (EXPD-011), all
-described below. The rest is tracked in its own tickets:
+that says where a team stands on a mission (EXPD-010), the completion and
+validation interface every finished mission comes through (EXPD-011), and the
+scoring engine that says what a verdict was worth (EXPD-012), all described
+below. The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-012 to EXPD-015
+- Mission Engine behaviour — EXPD-013 to EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -879,6 +880,151 @@ Three limits are worth knowing:
    (EXPD-016). What a verdict is worth is EXPD-012, and what a completed
    mission unlocks is EXPD-013; both read what this produces rather than
    producing it again.
+
+### The scoring engine
+
+A verdict says what a team did. This says what it was worth.
+`packages/engine/src/scoring/` turns one thing that happened into points and
+writes down every change it makes, so a team's total is never a number
+somebody has to trust.
+
+```ts
+import {
+  applyScoreChange,
+  createTeamScore,
+  expeditionScoringPolicyFor,
+  missionScoringPolicyFor,
+} from '@explorer/engine';
+
+let score = createTeamScore();
+
+const result = applyScoreChange({
+  kind: 'mission',
+  score,
+  verdict: completion.verdict,        // what EXPD-011 concluded
+  progress: completion.progress,      // and where it left the mission
+  mission: missionScoringPolicyFor(mission),
+  scoring: expeditionScoringPolicyFor(definition),
+  at: now,
+});
+
+if (result.applied) {
+  score = result.score;               // a new record; the old one is untouched
+  store(result.events);               // every change, and why
+} else {
+  // `not-decided`, `already-scored` or `hint-already-spent`.
+  return reply.status(409).send({ refusal: result.refusal });
+}
+```
+
+**Every score change writes a `ScoreEvent`, by construction rather than by
+everybody remembering.** There is one function in the engine that can move a
+total — `award` in `ledger.ts` — and it writes the line at the moment it moves
+it. Nothing else adds a number to a score. Adding up a team's events gives
+their total back exactly, which is what migration 0001 already says of the two
+columns: `score_event` is the record and `team.total_score` is a total kept
+alongside it for speed. `createTeamScore` will not take an opening total for
+the same reason — a team rebuilt part way through a run is rebuilt from its
+events, because a total that did not come from the stream behind it is a total
+nobody can check.
+
+**Three things move a score, and there is one door.** A mission was judged, a
+team spent a token on a hint, or a teacher moved the score by hand (EXPD-058).
+`applyScoreChange` takes any of the three and answers the same way the
+completion interface does: a new record and the lines that got it there, or a
+refusal and a record that has not moved.
+
+**What a mission earns, in the order it is worked out.** Base points first,
+from `MissionScoring.basePoints`, or a share of them when the mission allows
+partial credit and the mission type said how much of it was done — that share
+is the accuracy of the answer, and `partial-credit` is the reason written
+down. Then every rule in `ScoringConfig.rules`, in the order the document
+lists them:
+
+| Rule                     | Fires when                                                    |
+| ------------------------ | ------------------------------------------------------------- |
+| `speed-bonus`            | The mission was finished inside `withinSeconds`.              |
+| `first-to-complete-bonus`| The caller says this team got there first.                    |
+| `streak-bonus`           | The run of right answers reached `length`, and every multiple. |
+| `completion-bonus`       | The last mission the rule names was finished.                  |
+| `hint-penalty`           | A hint was opened. Charged then, not at the end.               |
+| `attempt-penalty`        | The answer was wrong.                                          |
+| `late-penalty`           | A finished mission was handed in past the expedition's clock.  |
+
+The order is part of the answer rather than a detail of how rules are stored.
+A mission's `maxPoints` cap applies to whatever that mission has added up to
+by the time each rule fires, so a bonus listed first can take the room a later
+one wanted. The expedition's `minimumTotal` is the floor: a penalty that would
+go under it takes the team to the floor and no further. An award either limit
+trims is written down as **what it actually moved**, with a `limit` saying
+what it would have been — writing down the untrimmed figure would make a
+stream that no longer adds up to the total, and a stream that does not add up
+is not a record of anything.
+
+**It is told, the same way the state machine is.** Whether this team was the
+first to finish a mission is a fact about every other team, and how late work
+was is a fact about the expedition's clock (EXPD-019). The engine holds
+neither, so both arrive on the request. How long a team took is the one it
+works out for itself, off the `start` in the mission's own history — the same
+line `timer.ts` reads — and a caller replaying stored rows can pass
+`tookSeconds` instead.
+
+**Two settings, two documents, one place to read each.**
+`missionScoringPolicyFor` gathers what one mission is worth off the mission,
+and `expeditionScoringPolicyFor` gathers the rules, the floor and the list of
+missions off the definition. It takes the whole definition because `target:
+{ kind: 'all' }` means every mission in the expedition, and that list is
+`definition.missions`. `leaderboard` stays out: how a score is shown and how
+two equal ones are separated is EXPD-022 and EXPD-045, not how either was
+earned.
+
+**A refusal is not a change worth nothing.** A second verdict on a mission
+already finished, a hint charged for twice, a mission still waiting on a
+teacher — all three are refused, and none of them moves a total or a count. A
+wrong answer on an expedition with no `attempt-penalty` rule is different: it
+costs nothing, writes nothing, and still breaks the team's streak, so it is
+applied with an empty list of events.
+
+The words a score is said in are in `packages/shared-types/src/scoring/`, the
+same split the registry, the state machine and the completion interface make,
+because the live score screen (EXPD-045) shows a total on a phone. The ten
+reasons there are the `score_event_reason` enum from migration 0001 value for
+value, and a test holds them to it: a reason the engine can say and the column
+cannot hold is a run that fails at the moment a team scores.
+
+The tests are in `packages/engine/test/scoring/` and
+`packages/shared-types/test/scoring/`:
+
+| File                  | What it holds to account                                      |
+| --------------------- | ------------------------------------------------------------- |
+| `vocabulary.test.ts`  | The ten reasons, against the column and against the rules.     |
+| `base.test.ts`        | Base points, partial credit, and the cap and floor around them. |
+| `bonuses.test.ts`     | The four rules that add points, and when they do not.          |
+| `penalties.test.ts`   | The three that take them away, and what a hint costs.          |
+| `record.test.ts`      | That a total is always the sum of the stream behind it.        |
+| `policy.test.ts`      | Which document each setting is read from.                      |
+
+Four limits are worth knowing:
+
+1. **A score that did not move writes nothing.** A cap that eats a bonus
+   whole, a penalty on a team already at the floor, a mission worth nought
+   points: none of them is a score change, so none is a score event. What a
+   team is shown about a cap they hit is a screen (EXPD-045) rather than a
+   line in the record.
+2. **The running counts are not all in the stream.** The total is, exactly.
+   The streak, the wrong answers and the hints spent are not, because an
+   answer that cost a team nothing still breaks a streak. They are rebuilt by
+   replaying the game rather than the score, and stored beside the total.
+3. **`hint-penalty` charges per hint, not per token.** `HintDefinition.tokenCost`
+   is how many tokens a hint costs, which is EXPD-046's inventory;
+   `pointsPerHint` is what opening one costs in points, which is this. A hint
+   is counted as spent whether or not a rule charged for it, because the
+   `fewest-hints-used` tie break counts hints.
+4. **Nothing calls this yet.** The mission attempt and submission endpoints
+   (EXPD-020) are what will, once something opens a database connection
+   (EXPD-016). Carrying the stream across the system — storing it, ordering
+   it, proving nothing edited it — is EXPD-014, and this is the value that
+   stream is made of.
 
 ### Known gaps in `apps/student-mobile`
 
