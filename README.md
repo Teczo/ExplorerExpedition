@@ -79,10 +79,11 @@ Definition schema (EXPD-002), the database schema (EXPD-003), auth and
 organisation tenancy (EXPD-004), the cross-organisation isolation tests that
 hold EXPD-004 to its word (EXPD-005), the append-only audit log
 (EXPD-006), the Azure baseline those all run on (EXPD-007), the pipeline
-that builds, checks and deploys the lot (EXPD-008), and the mission type
-registry the engine is built around (EXPD-009), all described below. The rest is tracked in its own tickets:
+that builds, checks and deploys the lot (EXPD-008), the mission type
+registry the engine is built around (EXPD-009), and the mission state machine
+that says where a team stands on a mission (EXPD-010), all described below. The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-010 to EXPD-015
+- Mission Engine behaviour — EXPD-011 to EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -554,9 +555,10 @@ that replaying an attempt and simulating a run (EXPD-015) give the same
 answer twice.
 
 This ticket defines that slot and nothing more. The registry holds a
-behaviour and hands it over; it never calls one. Who calls it is the state
-machine (EXPD-010), the fuller completion interface is EXPD-011, and turning
-an outcome into points is the scoring engine (EXPD-012).
+behaviour and hands it over; it never calls one. Nor does the state machine
+(EXPD-010), which is told the verdict rather than asking for it. The thing
+that calls a behaviour is the completion and validation interface (EXPD-011),
+and turning an outcome into points is the scoring engine (EXPD-012).
 
 **`config_schema` is a written-down subset of JSON Schema.** Migration 0001
 says the column holds a JSON Schema, and "a JSON Schema" is not on its own a
@@ -615,6 +617,127 @@ Two limits are worth knowing:
    connection (EXPD-016). The registry takes types from whoever builds it, and
    the row shape is already the shape it takes, so reading them is a query and
    a loop rather than a translation.
+
+### The mission state machine
+
+A *mission instance* (EXPD-002) is one task placed in one expedition. While a
+class plays, every team has its own view of every mission, and that view is
+one of eight words. `packages/engine/src/mission-state/` is the one place a
+mission moves between them.
+
+```text
+  locked  ──unlock──▶  available          available  ──relock──▶  locked
+  available  ──start──▶  in-progress
+  in-progress  ──submit──▶  submitted     in-progress  ──expire──▶  failed
+  submitted  ──accept──▶  complete
+  submitted  ──refer──▶  awaiting-verification
+  submitted  ──reject──▶  available, or failed on the last try
+  awaiting-verification  ──verify──▶  complete
+  awaiting-verification  ──overrule──▶  available, or failed on the last try
+  available, in-progress  ──skip──▶  skipped
+```
+
+```ts
+import {
+  applyMissionTransition,
+  createMissionProgress,
+  missionStatePolicyFor,
+} from '@explorer/engine';
+
+let progress = createMissionProgress(mission.id);
+const policy = missionStatePolicyFor(mission, definition.rules);
+
+const result = applyMissionTransition(
+  progress,
+  { trigger: 'unlock', actor: 'engine', at: now },
+  policy,
+);
+if (result.applied) {
+  progress = result.progress;      // a new record; the old one is untouched
+} else {
+  // `wrong-state`, `terminal-state`, `no-attempts-left`, `skip-not-allowed`
+  // or `unknown-trigger`, with a sentence saying which.
+  return reply.status(409).send({ refusal: result.refusal });
+}
+```
+
+**Every change is a named trigger, and there is one table.** Eleven triggers,
+written out as data in `table.ts`, and the machine is a walk over it. Nothing
+else in the engine writes a mission state, there is no `switch` that grows a
+case, and no branch nudges a mission somewhere nobody decided it should go.
+`table.test.ts` writes out all eighty-eight state-and-trigger pairs — eight
+states by eleven triggers — and checks every one, so an edge added without a
+decision behind it fails a test.
+
+**The machine decides nothing.** It is *told* that a submission was right
+(`accept`), that a person has to look (`refer`), that an unlock condition
+holds (`unlock`), that a clock ran out (`expire`). Judging a submission is the
+mission type's behaviour (EXPD-009) through the completion interface
+(EXPD-011), working out that a condition holds is EXPD-013, and what any of it
+is worth is EXPD-012. Keeping those out is what lets this be a table.
+
+**Every change is written down, and the log is the record.** A change appends
+one `MissionTransition`: from, to, trigger, actor, when, which try, and an
+optional reason and detail. `replayMissionTransitions` hands a stored history
+back to the rules and either lands where the mission was left or names the
+line it disagrees with — a line starting somewhere the mission was not, a line
+the rules would have refused, or a line that ended somewhere they would not
+have put it. That is what makes a team's `failed` mission something anybody
+can check rather than something they have to trust. A refused transition is
+*not* logged, because it is not something that happened to the mission.
+
+**Refusals are answers, not failures.** Two phones on one team both press
+submit, a teacher reviews a queue a team has already moved on from, a
+submission queued offline (EXPD-048) arrives after the mission timed out. All
+of those are a team playing normally, so `applyMissionTransition` returns a
+refusal and changes nothing. `requireMissionTransition` throws instead, for a
+caller that has already checked — the same pairing as `get` and `require` on
+the registry. `allowedMissionTriggers` is what the student app draws its
+buttons from, so a team is never shown one the rules would refuse.
+
+**Two settings bend the machine, and nothing else does.**
+`MissionInstance.attempts.maxAttempts` decides whether a wrong answer hands
+the mission back or ends it, and `ExpeditionRules.allowSkip` decides whether a
+team may walk away. `missionStatePolicyFor` reads both off the documents.
+Everything else stays out: `cooldownSeconds` and `timeLimitSeconds` are
+clocks, and the engine holds no clock — whoever owns the clock applies `start`
+or `expire` when it is time. Nothing here reads `Date.now()`, because a
+machine that does cannot be replayed.
+
+**These are mission states, not attempt states.** `mission_attempt.status` in
+migration 0001 tracks one try; a team that got a puzzle wrong twice has two
+attempt rows and one mission state. Writing either is EXPD-020's, once
+anything opens a database connection.
+
+The words — the eight states, the eleven triggers, the shape of a logged line
+— are in `packages/shared-types/src/mission-state/` rather than the engine,
+the same split the registry makes and for the same reason: the mission board
+(EXPD-042) draws a badge from a mission state on every screen, and
+`apps/student-mobile` depends on `@explorer/shared-types` alone.
+
+The tests are in `packages/engine/test/mission-state/` and
+`packages/shared-types/test/mission-state/`:
+
+| File                  | What it holds to account                                      |
+| --------------------- | ------------------------------------------------------------- |
+| `vocabulary.test.ts`  | The eight states and eleven triggers, and nothing else.        |
+| `table.test.ts`       | All eighty-eight state-and-trigger pairs, one by one.          |
+| `machine.test.ts`     | A mission played end to end, and what a refusal leaves behind. |
+| `attempts.test.ts`    | Counting tries, and what the last one being wrong means.       |
+| `log.test.ts`         | What a history holds, and replaying a tampered one.            |
+| `policy.test.ts`      | Skipping, attempt limits, and where both are read from.        |
+
+Three things are deliberately not in the machine:
+
+1. **No edge out of `complete`, `failed` or `skipped`.** Putting a team back
+   into a mission a teacher has closed is a live override (EXPD-058), which
+   can add its own trigger and say in the log that a person did it.
+2. **No way back out of `in-progress` but finishing, timing out or skipping.**
+   A team that opens a mission and wanders off has used a try; handing it back
+   would make `max_attempts` mean nothing.
+3. **Nothing knows which team it is about.** A record is one mission for one
+   team, and whatever stores it already knows whose it is. Repeating the team
+   id inside would be a second place for it to be wrong.
 
 ### Known gaps in `apps/student-mobile`
 
