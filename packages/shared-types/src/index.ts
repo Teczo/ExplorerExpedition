@@ -52,6 +52,16 @@ export * from './expedition/index.ts';
 export * from './mission-type/index.ts';
 
 /**
+ * The mission state vocabulary (EXPD-010).
+ *
+ * Where one team stands on one mission, the words for every change it can
+ * make, and the line written down when it does. The rules behind those words
+ * are the state machine in `@explorer/engine`. Re-exported for the same
+ * reason as the two above.
+ */
+export * from './mission-state/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the

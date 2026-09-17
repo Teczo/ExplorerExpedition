@@ -9,8 +9,11 @@
  * change to the engine, so nothing else in this package knows what a QR hunt
  * is.
  *
+ * The mission state machine (EXPD-010) is in `./mission-state`. It owns where
+ * a team stands on a mission and every way that can change, so that no other
+ * part of the platform writes a mission state of its own.
+ *
  * The rest arrives in later tickets:
- *   EXPD-010  mission state machine
  *   EXPD-011  completion and validation interface
  *   EXPD-012  scoring engine
  *   EXPD-013  progression and unlock evaluation
@@ -21,6 +24,7 @@
 import { APP_NAMES } from '@explorer/shared-types';
 
 export * from './mission-types/index.ts';
+export * from './mission-state/index.ts';
 
 /** The version of the engine contract that callers are talking to. */
 export const ENGINE_VERSION = '0.1.0';
