@@ -71,6 +71,16 @@ export * from './mission-state/index.ts';
 export * from './completion/index.ts';
 
 /**
+ * The scoring vocabulary (EXPD-012).
+ *
+ * What a team's score is, why it moved, and the line written down each time
+ * it does. The rules that work out what a verdict is worth are the scoring
+ * engine in `@explorer/engine`. Re-exported for the same reason as the four
+ * above.
+ */
+export * from './scoring/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the
