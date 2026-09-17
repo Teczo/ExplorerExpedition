@@ -91,6 +91,16 @@ export * from './scoring/index.ts';
 export * from './progression/index.ts';
 
 /**
+ * The event stream vocabulary (EXPD-014).
+ *
+ * The line a score change or a progression change is carried on, the order
+ * they are carried in, and the seal that says nothing edited them. The rules
+ * that seal, check and replay a stream are in `@explorer/engine`. Re-exported
+ * for the same reason as the six above.
+ */
+export * from './stream/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the

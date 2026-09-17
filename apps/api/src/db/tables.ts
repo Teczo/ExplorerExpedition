@@ -73,6 +73,7 @@ export const TABLE_SCOPES = {
   organisation: 'global',
   participant: 'tenant',
   participant_device: 'tenant',
+  progression_event: 'tenant',
   qr_marker: 'tenant',
   score_event: 'tenant',
   submission: 'tenant',
@@ -155,12 +156,25 @@ export function assertGlobal(table: string): GlobalTableName {
  * is built, and by the triggers migration 0003 attaches to the table, which
  * hold for every caller rather than only for this code.
  *
- * `score_event` and `live_event` are written once too, and they are
- * deliberately not in this list yet. Holding the score stream to it is
- * EXPD-014, which owns that table; adding it here is the whole change when
- * that ticket comes round.
+ * `score_event` and `progression_event` are the two halves of a team's event
+ * stream (EXPD-014), and the same reasoning applies to them twice over: a
+ * total nobody can check is a total nobody should be asked to accept, and the
+ * first thing somebody fixing a score by hand would edit is the line saying
+ * what it used to be. Migration 0004 attaches the same triggers 0003 wrote,
+ * and they are listed here so that the refusal is a clear message from this
+ * layer rather than a driver error from the one below.
+ *
+ * `live_event` is written once too and is deliberately not in this list. It
+ * is the realtime channel's replay buffer (EXPD-023) — a client that dropped
+ * a connection catches up from it — rather than a record anything is decided
+ * by, and the ticket that owns it is the one to say whether it is held to
+ * this.
  */
-export const APPEND_ONLY_TABLES: readonly TableName[] = ['audit_log'];
+export const APPEND_ONLY_TABLES: readonly TableName[] = [
+  'audit_log',
+  'progression_event',
+  'score_event',
+];
 
 /** Returns true when rows can only ever be added to the table. */
 export function isAppendOnly(table: string): boolean {

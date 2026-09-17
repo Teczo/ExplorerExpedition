@@ -16,6 +16,8 @@
  * Where to look:
  *
  *   `snapshot.ts`  What the expedition comes to for one team, right now.
+ *   `event.ts`     One change to that, written down as it happens (EXPD-014).
  */
 
 export * from './snapshot.ts';
+export * from './event.ts';

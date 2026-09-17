@@ -25,8 +25,11 @@
  * what the graph comes to for one team: where they have got to, which
  * missions the lock is off, and which ones they are shown at all.
  *
+ * The auditable event stream (EXPD-014) is in `./stream`. It carries the
+ * score changes and the progression changes as one numbered, sealed record,
+ * so that a final result can be rebuilt from it and disputed line by line.
+ *
  * The rest arrives in later tickets:
- *   EXPD-014  auditable score event stream
  *   EXPD-015  simulation harness
  */
 
@@ -37,6 +40,7 @@ export * from './mission-state/index.ts';
 export * from './completion/index.ts';
 export * from './scoring/index.ts';
 export * from './progression/index.ts';
+export * from './stream/index.ts';
 
 /** The version of the engine contract that callers are talking to. */
 export const ENGINE_VERSION = '0.1.0';

@@ -19,6 +19,7 @@ createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
@@ -44,7 +45,7 @@ part way through leaves the database exactly as it was.
 | Running an expedition | `expedition_session`, `participant`, `team`, `team_member` |
 | Playing a mission | `mission_attempt`, `submission` |
 | Assets and rewards | `media_asset`, `badge`, `ar_asset`, `qr_marker`, `inventory_item` |
-| Event streams | `score_event`, `live_event`, `audit_log` |
+| Event streams | `score_event`, `progression_event`, `live_event`, `audit_log` |
 
 ### The definition document, and the copy of it
 
@@ -128,12 +129,15 @@ owns.
 
 ### Append-only tables
 
-`score_event`, `live_event` and `audit_log` are written once and never
-changed. They have no `updated_at` column and no `updated_at` trigger.
+`score_event`, `progression_event`, `live_event` and `audit_log` are written
+once and never changed. They have no `updated_at` column and no `updated_at`
+trigger.
 
-For `audit_log` that is now a rule the database keeps rather than a habit.
-`0003_append_only_audit_log.sql` attaches three triggers to it, so the only
-statement the table accepts is an `INSERT`:
+For three of the four that is now a rule the database keeps rather than a
+habit. `0003_append_only_audit_log.sql` attaches three triggers to
+`audit_log`, and `0004_auditable_event_stream.sql` attaches the same three to
+`score_event` and `progression_event`, so the only statement any of them
+accepts is an `INSERT`:
 
 ```
 UPDATE audit_log SET action = 'something else';
@@ -160,9 +164,56 @@ already was one: an entry about something that has been deleted is exactly the
 entry somebody will want to read, and `actor_label` is there so that it still
 names somebody afterwards.
 
-`score_event` and `live_event` are deliberately untouched. Holding the score
-stream to the same rule is EXPD-014, and the function the triggers call is
-written to be reusable, so that ticket attaches it rather than writing it.
+0004 drops `score_event`'s foreign keys for the same reason, and all of them
+this time: three were `ON DELETE CASCADE`, which is a `DELETE` run by the
+database itself, so deleting a team would have failed against the rule above.
+A team's result is disputed after the afternoon is over and sometimes after
+the session has been tidied away, so a line outliving the rows it names is the
+behaviour wanted rather than the price of one.
+
+`live_event` is deliberately untouched. It is how a client that dropped a
+connection catches up (EXPD-023) rather than a record anything is decided by,
+and the ticket that owns it is the one to say whether it is held to this.
+
+### The event stream
+
+`score_event` and `progression_event` are one stream per team rather than two
+tables (EXPD-014). Three columns on each say so:
+
+| Column            | What it is                                              |
+| ----------------- | ------------------------------------------------------- |
+| `stream_sequence` | The line's place in its team's stream, from one, with no gaps, **across both tables**. |
+| `previous_hash`   | The seal on the line before it. Sixty-four noughts for the first. |
+| `hash`            | SHA-256 over this line and `previous_hash`.             |
+
+Ordering by `occurred_at` would not do: two lines can share a millisecond, and
+a submission queued offline (EXPD-048) is stamped an hour before the line that
+follows it.
+
+The next number and the seal to chain from live on `team`, in `stream_length`
+and `stream_head_hash`, beside `total_score` and for the same reason — a cache
+of the stream, so that writing one line does not mean reading the whole run
+back. A writer takes the team row `FOR UPDATE`, reads them, seals, inserts and
+writes them back, all in one transaction. That lock is what makes the
+numbering hold when two phones submit at once, and
+`apps/api/src/stream/team-stream.ts` refuses to write outside a transaction
+for that reason.
+
+The seal is worked out by `packages/engine/src/stream/` and by nothing else.
+It is taken over the *engine's* event, which names a mission, a hint and a
+scoring rule by the ids the definition document uses — so 0004 adds
+`mission_instance_key` and `hint_key` beside the existing uuids, along with
+`attempt_number` and the `limit_*` pair that 0001 had nowhere to put. Without
+those, a row read back would not be the line that was sealed, and a line about
+a mission since deleted could not be checked at all.
+
+The keys are the record and the uuids are the join, so a line may carry a key
+alone and never a uuid alone.
+
+What this buys is the thing a team arguing about a total should be handed:
+the lines, and a check anybody can run over them. Editing one is caught even
+by somebody who can turn the triggers off, because every seal after the edited
+line is taken over a line that no longer says what it said.
 
 ### Deletes
 

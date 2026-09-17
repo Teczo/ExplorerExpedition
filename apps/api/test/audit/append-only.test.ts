@@ -241,11 +241,17 @@ describe('the registry of append-only tables', () => {
     }
   });
 
-  test('the score stream is deliberately not on it yet', () => {
-    // EXPD-014 owns `score_event`. Adding it here before that ticket would
-    // break the score tests it has not written yet, and claim a rule the
-    // database does not keep.
-    assert.equal(isAppendOnly('score_event'), false);
+  test('both halves of the score stream are on it (EXPD-014)', () => {
+    // Migration 0004 attaches the same triggers to both, so the rule the
+    // registry claims here is one the database really keeps.
+    assert.equal(isAppendOnly('score_event'), true);
+    assert.equal(isAppendOnly('progression_event'), true);
+  });
+
+  test('the realtime replay buffer is deliberately not on it', () => {
+    // `live_event` is how a client that dropped a connection catches up
+    // (EXPD-023) rather than a record anything is decided by, and the ticket
+    // that owns it is the one to say whether it is held to this.
     assert.equal(isAppendOnly('live_event'), false);
   });
 });
