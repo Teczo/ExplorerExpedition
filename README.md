@@ -82,11 +82,12 @@ hold EXPD-004 to its word (EXPD-005), the append-only audit log
 that builds, checks and deploys the lot (EXPD-008), the mission type
 registry the engine is built around (EXPD-009), the mission state machine
 that says where a team stands on a mission (EXPD-010), the completion and
-validation interface every finished mission comes through (EXPD-011), and the
-scoring engine that says what a verdict was worth (EXPD-012), all described
-below. The rest is tracked in its own tickets:
+validation interface every finished mission comes through (EXPD-011), the
+scoring engine that says what a verdict was worth (EXPD-012), and the
+progression engine that says what the graph comes to for one team
+(EXPD-013), all described below. The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-013 to EXPD-015
+- Mission Engine behaviour — EXPD-014 and EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -114,7 +115,11 @@ if (!result.valid) {
 
 The document carries its own `schemaVersion`, so a reader can tell whether it
 understands a file before reading it. `packages/shared-types/src/expedition/version.ts`
-sets out the compatibility rules.
+sets out the compatibility rules. It is at **1.1.0**: progression (EXPD-013)
+added `optional` and `secret` to a mission node, `audience` to an edge, and
+`routes` to the expedition's rules. All four are optional fields, so a 1.0.0
+document is still a valid one and reads as an expedition with no routes where
+every mission blocks the way and none is hidden.
 
 `validateExpeditionDefinition` checks the shape of a document and the way its
 parts point at each other: unknown ids, a mission no node uses, a graph with no
@@ -123,9 +128,9 @@ start, a node nothing can reach, a loop. It does not check
 for that. The mission type registry below is what checks it, and running both
 is what fully checks a document.
 
-There are no automated tests for it yet. The test runner is now in place —
-see the isolation tests below — but writing tests for this schema is not part
-of any ticket that has been done.
+The only tests over it are the ones EXPD-013 brought with the fields it added,
+in `packages/shared-types/test/expedition/progression-fields.test.ts`. Testing
+the rest of the validator is not part of any ticket that has been done.
 
 ### The database schema
 
@@ -1025,6 +1030,146 @@ Four limits are worth knowing:
    (EXPD-016). Carrying the stream across the system — storing it, ordering
    it, proving nothing edited it — is EXPD-014, and this is the value that
    stream is made of.
+
+### Progression and unlock evaluation
+
+The graph says how an expedition is laid out for everybody. This says what it
+comes to for one team. `packages/engine/src/progression/` works out where a
+team has got to, which missions the lock is off, which ones they are shown at
+all, and what is holding the rest up.
+
+```ts
+import {
+  evaluateProgression,
+  progressionPolicyFor,
+  teamSituation,
+} from '@explorer/engine';
+
+const snapshot = evaluateProgression({
+  policy: progressionPolicyFor(definition),
+  situation: teamSituation({
+    missions: progressByMission,   // where EXPD-010 says the team stands
+    score,                         // what EXPD-012 says they have earned
+    elapsedSeconds,                // the session's clock (EXPD-019)
+    routeIds: team.routeIds,       // the route the team was put on
+  }),
+});
+
+snapshot.unlockedMissionIds;       // what the mission board may offer
+snapshot.visibleMissionIds;        // what it may show at all
+snapshot.finished;                 // whether they have reached a finish
+```
+
+**Reaching a stop and clearing it are two different things.** A team reaches a
+stop when an edge lets them through to it. They clear it when they have done
+what it asks, and that is what opens the stops after it. A start or a
+checkpoint is cleared the moment it is reached. A mission stop is cleared once
+its mission is over — finished, failed or skipped — or at once when the author
+marked it optional. A team with no tries left on a puzzle has finished with
+that puzzle, and an expedition that left them standing in front of it for the
+rest of the afternoon would be a bug rather than a rule. But only a mission
+that was `complete` counts towards a `mission-completed` condition, so giving
+up on one never unlocks what finishing it would have.
+
+**The whole answer is worked out again every time it is asked.** Nothing is
+remembered between calls and nothing is stored, so a snapshot cannot drift
+from the records behind it, and a team rebuilt from stored rows (EXPD-020)
+lands on exactly the snapshot they had. It is told the things it has no right
+to know, the same way the scoring engine is told whether a team finished
+first: where the team stands on each mission is EXPD-010's record, what they
+have earned is EXPD-012's, the clock is the session's (EXPD-019), and the
+route they are on was decided when teams were made (EXPD-018).
+
+**What the nine unlock conditions read.**
+
+| Condition                     | Holds when                                                   |
+| ----------------------------- | ------------------------------------------------------------ |
+| `always`                      | Always. The same as leaving the condition out.                |
+| `mission-completed`           | That mission is `complete`. Failed and skipped do not count.  |
+| `mission-score-at-least`      | The events naming that mission add up to the points.          |
+| `total-score-at-least`        | The team's total is at or above the points.                   |
+| `missions-completed-at-least` | Enough of the listed missions are `complete`, each counted once. |
+| `elapsed-time-at-least`       | The team has been playing that long.                          |
+| `all-of`                      | Every condition inside holds. An empty group holds.           |
+| `any-of`                      | One condition inside holds. An empty group does not.          |
+| `not`                         | The condition inside does not.                                |
+
+**Three things the author says, and what each one does.**
+
+1. **Optional** says a team may walk past a mission without finishing it. Its
+   stop is cleared the moment they arrive, so nothing behind it waits on them,
+   and in `strict` it is never in the queue — a side quest that held up the
+   main line would be holding the team up, which is the one thing optional
+   says it never does. It is not `allowSkip`: that is a team giving up on a
+   mission that was in their way, and this is the author saying it never was.
+2. **Secret** says the team is not told the mission is there. A secret mission
+   is off the board while it is locked and on it from the moment the team
+   reaches it, and it stays. It changes what a team is shown and never what
+   unlocks, so a secret mission with nothing in front of it is visible from
+   the start.
+3. **A route** says which teams an edge is for. One graph holds both halves of
+   a class: the walkers go round the lake, the cyclists over the hill, and
+   both come back to the same finish. A route is not a condition — a team
+   cannot play their way onto one — so a stop down somebody else's route comes
+   back `offRoute` rather than locked, and nothing they do will change it.
+
+**The three progression modes hand out different amounts.** `strict` opens one
+required mission at a time, in the order the document lists the stops, because
+that order is the author's and is the same for every team and every replay.
+`open` opens everything the graph has opened. `free-roam` opens the lot: the
+rules say edges and their conditions are ignored, and a route is carried on an
+edge, so ignoring edges ignores routes and secrets with them. An author who
+wants either of those wants `open`.
+
+**A snapshot says what is in the way, not just that something is.** Every stop
+carries the edges leading into it that did not let the team through, each with
+one of three reasons: `not-cleared` when the stop before it is unfinished,
+`condition` when the edge's condition does not hold yet, and `off-route` when
+the edge is for routes this team is not on. That is what lets a mission board
+say "finish the museum first" rather than drawing a padlock and nothing else.
+
+`missionsRequiredBefore` asks the same question of the document with no team
+in it: what stands immediately in front of this mission, whether it got there
+by being the stop before or by being named in a condition. It is one step
+back, not the whole way — whether an expedition can be finished at all is the
+simulation harness's question (EXPD-015).
+
+The words a snapshot is said in are in
+`packages/shared-types/src/progression/`, the same split the registry, the
+state machine, the completion interface and the scoring engine make, because
+the mission board (EXPD-042) draws a locked mission on a phone.
+
+The tests are in `packages/engine/test/progression/` and
+`packages/shared-types/test/progression/`:
+
+| File                          | What it holds to account                                   |
+| ----------------------------- | ---------------------------------------------------------- |
+| `conditions.test.ts`          | The nine conditions, one at a time.                         |
+| `unlock.test.ts`              | The walk, and what it says is in the way.                   |
+| `optional-and-secret.test.ts` | That each of the two does only its own job.                 |
+| `routes.test.ts`              | One graph, two ways through it.                             |
+| `modes.test.ts`               | What each of the three modes hands out.                     |
+| `dependencies.test.ts`        | What stands in front of a mission, with no team in it.      |
+| `policy.test.ts`              | Which document each setting is read from.                   |
+| `vocabulary.test.ts`          | The three block reasons, and the readers over a snapshot.   |
+
+Four limits are worth knowing:
+
+1. **It does not say a team may press start.** The lock being off is the
+   graph's answer. How many tries are left, whether a cooldown is running and
+   whether a submission is sitting with a teacher are the state machine's
+   (EXPD-010), and the completion interface (EXPD-011) is what judges the work.
+2. **Nothing moves a team along.** A snapshot is a reading, not a step. What
+   writes a mission state is the state machine, and what tells a team their
+   world changed is the realtime channel (EXPD-023).
+3. **The database does not hold the new fields yet.** `optional` and `secret`
+   live in `expedition_version.definition`, which is the source of truth, and
+   the flat `mission_node` copy has no column for them; `team` has no route
+   column either. Writing the flat copy is EXPD-017 and putting a team on a
+   route is EXPD-018, so the columns are theirs to add.
+4. **Nothing calls this yet.** The mission board (EXPD-042) and the attempt
+   endpoints (EXPD-020) are what will, once something opens a database
+   connection (EXPD-016).
 
 ### Known gaps in `apps/student-mobile`
 

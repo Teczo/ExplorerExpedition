@@ -8,7 +8,7 @@
  * The engine reads these. Enforcing them is EXPD-010 and EXPD-019.
  */
 
-import type { IntRange, Seconds } from './common.ts';
+import type { IntRange, RouteId, Seconds } from './common.ts';
 
 /** How freely a team may move through the graph. */
 export type ProgressionMode =
@@ -119,6 +119,24 @@ export interface HintRules {
   refillEverySeconds?: Seconds;
 }
 
+/**
+ * One named way through the expedition.
+ *
+ * Teams on different routes see different stops. An edge says which routes
+ * may take it (`ExpeditionEdge.audience`), so a route is a label an author
+ * puts on a path rather than a second copy of the graph.
+ *
+ * Handing a route to a team is EXPD-018's, and working out what a team on one
+ * can see is progression (EXPD-013). The definition only names them.
+ */
+export interface RouteDefinition {
+  id: RouteId;
+  /** What the author calls it, such as `river` or `the long way round`. */
+  name: string;
+  /** A note the author left for themselves. Students do not see it. */
+  description?: string;
+}
+
 /** How work is handed in and reviewed. */
 export interface SubmissionRules {
   /**
@@ -139,6 +157,13 @@ export interface SubmissionRules {
 /** Every rule that shapes how an expedition is played. */
 export interface ExpeditionRules {
   progression: ProgressionMode;
+  /**
+   * The routes teams may be put on.
+   *
+   * Left out, or empty, means the expedition has no routes and every team
+   * walks the same graph. An edge may only name a route listed here.
+   */
+  routes?: RouteDefinition[];
   /**
    * Whether a team may skip a mission and move on without finishing it.
    *

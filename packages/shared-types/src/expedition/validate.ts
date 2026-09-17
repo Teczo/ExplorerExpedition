@@ -24,6 +24,7 @@ import {
 } from './common.ts';
 import { EXPEDITION_STATUSES, type ExpeditionDefinition } from './definition.ts';
 import {
+  EDGE_AUDIENCE_KINDS,
   EXPEDITION_NODE_KINDS,
   UNLOCK_CONDITION_TYPES,
   type ExpeditionNode,
@@ -873,6 +874,105 @@ function validateUnlockCondition(
   }
 }
 
+/**
+ * Checks which teams an edge is for.
+ *
+ * `routeIds` holds every route the expedition's rules declare, so an edge
+ * naming a route that was deleted is caught here. The routes themselves are
+ * checked in `validateRules`; this only checks that the edge names ones that
+ * exist.
+ */
+function validateEdgeAudience(
+  ctx: Context,
+  path: string,
+  value: unknown,
+  routeIds: Set<string>,
+): void {
+  const audience = readObject(ctx, path, value, true);
+  if (audience === null) {
+    return;
+  }
+
+  const kind = readEnum(
+    ctx,
+    `${path}.kind`,
+    audience['kind'],
+    EDGE_AUDIENCE_KINDS,
+    true,
+  );
+  if (kind !== 'routes') {
+    return;
+  }
+
+  const ids = readArray(ctx, `${path}.routeIds`, audience['routeIds'], true);
+  if (ids === null) {
+    return;
+  }
+  if (ids.length === 0) {
+    report(
+      ctx,
+      `${path}.routeIds`,
+      'out-of-range',
+      'An edge for no route is an edge no team can take. Delete it instead.',
+    );
+  }
+
+  const seen = new Set<string>();
+  ids.forEach((entry, index) => {
+    const routeId = readString(ctx, `${path}.routeIds[${index}]`, entry, {
+      required: true,
+    });
+    if (routeId === undefined) {
+      return;
+    }
+    if (!routeIds.has(routeId)) {
+      report(
+        ctx,
+        `${path}.routeIds[${index}]`,
+        'unknown-reference',
+        `No route in this expedition has the id "${routeId}".`,
+      );
+    }
+    if (seen.has(routeId)) {
+      report(
+        ctx,
+        `${path}.routeIds[${index}]`,
+        'inconsistent',
+        `The route "${routeId}" is named twice on this edge.`,
+      );
+    } else {
+      seen.add(routeId);
+    }
+  });
+}
+
+/**
+ * The route ids the rules declare, read without reporting on them.
+ *
+ * The graph is walked before the rules, because a node pointing at a missing
+ * mission is a more useful thing to hear about first, and the order issues
+ * come back in is the order the document is walked. An edge still has to be
+ * told whether the route it names exists, so the ids are picked up ahead of
+ * time here. Anything wrong with the routes themselves is reported once, by
+ * `validateRules`.
+ */
+function declaredRouteIds(value: unknown): Set<string> {
+  const ids = new Set<string>();
+  if (!isPlainObject(value)) {
+    return ids;
+  }
+  const routes = value['routes'];
+  if (!Array.isArray(routes)) {
+    return ids;
+  }
+  for (const route of routes) {
+    if (isPlainObject(route) && typeof route['id'] === 'string' && route['id'] !== '') {
+      ids.add(route['id']);
+    }
+  }
+  return ids;
+}
+
 /** What the graph check learned about one node, used by the later checks. */
 interface NodeSummary {
   id: string;
@@ -887,6 +987,9 @@ interface NodeSummary {
  *
  * `usedMissionIds` is filled in as mission nodes are read, so that the caller
  * can report missions that no node uses.
+ *
+ * `routeIds` holds every route the expedition declares, so that an edge for
+ * a route that is not there can be caught.
  */
 function validateGraph(
   ctx: Context,
@@ -894,6 +997,7 @@ function validateGraph(
   value: unknown,
   missionIds: Set<string>,
   usedMissionIds: Set<string>,
+  routeIds: Set<string>,
 ): void {
   const graph = readObject(ctx, path, value, true);
   if (graph === null) {
@@ -990,6 +1094,12 @@ function validateGraph(
             usedMissionIds.add(missionId);
           }
         }
+        if (node['optional'] !== undefined) {
+          readBoolean(ctx, `${nodePath}.optional`, node['optional'], false);
+        }
+        if (node['secret'] !== undefined) {
+          readBoolean(ctx, `${nodePath}.secret`, node['secret'], false);
+        }
       }
 
       if (id !== undefined) {
@@ -1078,6 +1188,9 @@ function validateGraph(
         missionIds,
         1,
       );
+    }
+    if (edge['audience'] !== undefined) {
+      validateEdgeAudience(ctx, `${edgePath}.audience`, edge['audience'], routeIds);
     }
 
     if (from === undefined || to === undefined) {
@@ -1262,6 +1375,41 @@ function validateRules(ctx: Context, path: string, value: unknown): void {
 
   readEnum(ctx, `${path}.progression`, rules['progression'], PROGRESSION_MODES, true);
   readBoolean(ctx, `${path}.allowSkip`, rules['allowSkip'], true);
+
+  if (rules['routes'] !== undefined) {
+    const routes = readArray(ctx, `${path}.routes`, rules['routes'], true);
+    if (routes !== null) {
+      const routeIds = new Set<string>();
+      routes.forEach((entry, index) => {
+        const routePath = `${path}.routes[${index}]`;
+        const route = readObject(ctx, routePath, entry, true);
+        if (route === null) {
+          return;
+        }
+        const routeId = readString(ctx, `${routePath}.id`, route['id'], {
+          required: true,
+        });
+        if (routeId !== undefined) {
+          if (routeIds.has(routeId)) {
+            report(
+              ctx,
+              `${routePath}.id`,
+              'duplicate-id',
+              `Two routes share the id "${routeId}".`,
+            );
+          } else {
+            routeIds.add(routeId);
+          }
+        }
+        readString(ctx, `${routePath}.name`, route['name'], { required: true });
+        if (route['description'] !== undefined) {
+          readString(ctx, `${routePath}.description`, route['description'], {
+            required: false,
+          });
+        }
+      });
+    }
+  }
 
   const teams = readObject(ctx, `${path}.teams`, rules['teams'], true);
   if (teams !== null) {
@@ -1685,7 +1833,14 @@ export function validateExpeditionDefinition(value: unknown): ValidationResult {
   }
 
   const usedMissionIds = new Set<string>();
-  validateGraph(ctx, 'graph', root['graph'], missionIds, usedMissionIds);
+  validateGraph(
+    ctx,
+    'graph',
+    root['graph'],
+    missionIds,
+    usedMissionIds,
+    declaredRouteIds(root['rules']),
+  );
 
   if (rawMissions !== null) {
     rawMissions.forEach((entry, index) => {
