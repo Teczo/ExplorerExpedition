@@ -80,10 +80,12 @@ organisation tenancy (EXPD-004), the cross-organisation isolation tests that
 hold EXPD-004 to its word (EXPD-005), the append-only audit log
 (EXPD-006), the Azure baseline those all run on (EXPD-007), the pipeline
 that builds, checks and deploys the lot (EXPD-008), the mission type
-registry the engine is built around (EXPD-009), and the mission state machine
-that says where a team stands on a mission (EXPD-010), all described below. The rest is tracked in its own tickets:
+registry the engine is built around (EXPD-009), the mission state machine
+that says where a team stands on a mission (EXPD-010), and the completion and
+validation interface every finished mission comes through (EXPD-011), all
+described below. The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-011 to EXPD-015
+- Mission Engine behaviour — EXPD-012 to EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -738,6 +740,145 @@ Three things are deliberately not in the machine:
 3. **Nothing knows which team it is about.** A record is one mission for one
    team, and whatever stores it already knows whose it is. Repeating the team
    id inside would be a second place for it to be wrong.
+
+### The completion and validation interface
+
+A mission is completed in one of six ways: a scanned code matched, a photo was
+handed in, a teacher approved the work, an answer was right, a place was
+reached, or a clock ran out. `packages/engine/src/completion/` is the one door
+all six come through.
+
+```ts
+import {
+  completeMission,
+  missionCompletionPolicyFor,
+  missionStatePolicyFor,
+} from '@explorer/engine';
+
+const result = completeMission({
+  kind: 'submission',
+  registry,
+  mission,
+  progress,
+  payload: { scanned: 'EXPD-7742' },
+  position,
+  at: now,
+  completionPolicy: missionCompletionPolicyFor(mission, definition.rules),
+  statePolicy: missionStatePolicyFor(mission, definition.rules),
+});
+
+if (result.applied) {
+  progress = result.progress;   // a new record; the old one is untouched
+  send(result.verdict);         // what to show the team
+} else {
+  // `not-now`, `unknown-mission-type`, `invalid-submission`, `wrong-place`,
+  // `poor-accuracy` or `not-yet-expired`, with a sentence saying which.
+  return reply.status(409).send({ refusal: result.refusal });
+}
+```
+
+**The six are not six branches.** A matched code and a right answer are both a
+mission type's behaviour (EXPD-009) answering `correct`; the engine cannot tell
+them apart and has no reason to. A photo is that same behaviour saying it
+cannot decide, or an author saying up front that a person will. A place reached
+is the one check the engine owns itself, because a `LocationConstraint` is on
+the mission rather than inside the mission type's settings. A teacher's
+approval is a person's decision arriving on its own, and a clock running out is
+the one thing that finishes a mission with nothing handed in at all.
+
+So there are three ways in — `kind: 'submission'`, `'review'`, `'expiry'` — and
+one way out. Whatever went in, what comes back is a `CompletionVerdict`: what
+was concluded (`correct`, `incorrect`, `needs-review`, `expired`), what
+concluded it (`behaviour`, `location`, `teacher`, `timer`, `referral`), the
+trigger that became, and whether a person still has to look.
+
+**It decides, and the state machine moves.** Every verdict is handed to
+`applyMissionTransition` (EXPD-010), so there is still exactly one place a
+mission state changes and one table that says what may change it. A submission
+writes two lines in the mission's history — the team handing work in, and the
+verdict on it — and a decision or an expiry writes one. Every line is one the
+state machine made, so the history a check leaves behind is one that replays.
+
+**A refusal is not a wrong answer, and the difference matters.** A wrong answer
+is a try spent and something the scoring engine (EXPD-012) may take points for.
+Work handed in from the wrong end of the park is neither: it is refused, judged
+by nobody, and the team may hand it in again when they arrive. The state
+machine is asked before anything else, so a second tap on submit and a
+submission queued offline (EXPD-048) that arrives after the mission timed out
+are both answered before a mission type is looked up and before any of the
+author's code runs.
+
+**Who judges, and in what order.** Four rules, tried in this order:
+
+1. The mission says a person decides, so nothing here does. A mission type's
+   code is not run at all in that case — the author said the answer is a
+   judgement call, and a second opinion nobody will use only clutters the log.
+   `ExpeditionRules.submissions.requireReviewForAll` turns this on for a whole
+   expedition, and it only ever adds review: nothing takes away a review a
+   mission asked for.
+2. The mission type has code, so it judges.
+3. It has none, and the team reached the place the mission names, so that was
+   the mission. This is what makes "location reached" a way to finish one.
+4. It has none and there was no place either, so a person decides (EXPD-037).
+   A type built in the Studio (EXPD-025) is a row and nothing more, and a row
+   cannot judge anything.
+
+**A mission type with a bug in it does not fail the team.** A behaviour that
+throws, or that answers with something that is not an outcome, sends the
+submission to the teacher and says why in the mission's history. The team is
+told nothing about it, and the class carries on.
+
+**The engine still holds no clock.** `timer.ts` does arithmetic on times a
+caller passed in and never reads `Date.now()`, for the reason EXPD-010 gives.
+What it is for is the mistake at the other end: a timer can fire early, and a
+mission put into `failed` with time still on it is not something a team can
+argue with afterwards. So `missionDeadline` works out when a running try is
+actually up — from the mission's `timeLimitSeconds` and the `at` of the `start`
+in its own history — and an `expire` that has not come due is refused, with the
+real deadline in the refusal so whoever holds the clock can set it again.
+
+**Four settings, two documents, one place to read them.**
+`missionCompletionPolicyFor` gathers `verification`, `timeLimitSeconds` and
+`location` off the mission and `requireReviewForAll` off the expedition, the
+same way `missionStatePolicyFor` gathers its own two. The interface reads those
+and never the mission, so no setting is readable from two places. Everything
+else stays out: `cooldownSeconds` is a clock in front of `start`, `latePolicy`
+is about the expedition's clock rather than a mission's and belongs with the
+session (EXPD-019), and `scoring` is EXPD-012's.
+
+The words a verdict is said in are in
+`packages/shared-types/src/completion/`, the same split the registry and the
+state machine make, because the student app shows a verdict on the screen a
+team is looking at while they wait.
+
+The tests are in `packages/engine/test/completion/` and
+`packages/shared-types/test/completion/`:
+
+| File                    | What it holds to account                                      |
+| ----------------------- | ------------------------------------------------------------- |
+| `vocabulary.test.ts`    | The four outcomes, five methods and six refusals, and no more. |
+| `methods.test.ts`       | All six ways to complete a mission, one by one.                |
+| `refusals.test.ts`      | Work that is not checked, and that it leaves nothing behind.   |
+| `location.test.ts`      | The distance, and what a reading nobody can trust costs.       |
+| `timer.test.ts`         | When a running try is up, read off the mission's own history.  |
+| `policy.test.ts`        | Which document each of the four settings is read from.         |
+
+Three limits are worth knowing:
+
+1. **A reported position is not a fix the platform trusts.** A phone can be
+   told to report any position at all, so a mission whose whole answer is a
+   place is one a determined student can pass from the bus. Closing that is a
+   product decision no ticket has made.
+2. **`automatic-with-review` moves the mission and marks the work.** The team
+   is told straight away and the submission is put in front of a teacher
+   anyway, as `review: 'optional'`. A teacher who then disagrees is changing a
+   mission that has already finished, which is a live override (EXPD-058),
+   because the state machine has no edge out of a finished mission.
+3. **Nothing calls this yet.** The mission attempt and submission endpoints
+   (EXPD-020) are what will, once something opens a database connection
+   (EXPD-016). What a verdict is worth is EXPD-012, and what a completed
+   mission unlocks is EXPD-013; both read what this produces rather than
+   producing it again.
 
 ### Known gaps in `apps/student-mobile`
 

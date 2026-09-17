@@ -13,8 +13,11 @@
  * a team stands on a mission and every way that can change, so that no other
  * part of the platform writes a mission state of its own.
  *
+ * The completion and validation interface (EXPD-011) is in `./completion`.
+ * It is the one door everything that finishes a mission comes through, and
+ * the only thing that calls a mission type's behaviour.
+ *
  * The rest arrives in later tickets:
- *   EXPD-011  completion and validation interface
  *   EXPD-012  scoring engine
  *   EXPD-013  progression and unlock evaluation
  *   EXPD-014  auditable score event stream
@@ -25,6 +28,7 @@ import { APP_NAMES } from '@explorer/shared-types';
 
 export * from './mission-types/index.ts';
 export * from './mission-state/index.ts';
+export * from './completion/index.ts';
 
 /** The version of the engine contract that callers are talking to. */
 export const ENGINE_VERSION = '0.1.0';
