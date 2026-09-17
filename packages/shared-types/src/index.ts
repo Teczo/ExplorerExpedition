@@ -62,6 +62,15 @@ export * from './mission-type/index.ts';
 export * from './mission-state/index.ts';
 
 /**
+ * The completion and validation vocabulary (EXPD-011).
+ *
+ * What came of checking a team's work, what checked it, and whether a person
+ * still has to look. The interface that produces one is in
+ * `@explorer/engine`. Re-exported for the same reason as the three above.
+ */
+export * from './completion/index.ts';
+
+/**
  * Auth and organisation tenancy (EXPD-004).
  *
  * Roles, permissions and principals. Re-exported for the same reason as the
