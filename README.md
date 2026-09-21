@@ -92,7 +92,8 @@ harness that plays a whole expedition with fake teams so all six can be held
 to account at once (EXPD-015), and the REST API skeleton every endpoint from
 here on is built on (EXPD-016), and the first endpoints standing on it: the
 expeditions themselves, their drafts, and the publish that freezes a revision
-(EXPD-017), all described below. The rest is tracked in its
+(EXPD-017), and the join codes, teams and participants that fill a run of one
+with a class (EXPD-018), all described below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -1748,6 +1749,138 @@ EXPD-006's vocabulary already said.
 3. **No mission `config` checking.** Only the mission type knows the right
    shape for it (EXPD-009), and resolving a document's types against the
    registry is a copy of what they claimed, not a judgement on it.
+
+### Join codes, teams and participants
+
+`apps/api/src/participation/` is what happens between six characters on a
+whiteboard and a team sheet. A *run* of an expedition is one lesson: one
+class, one afternoon, one code. Making the run, starting it and ending it is
+EXPD-019; this is everything about the code it carries and the students it
+fills up with.
+
+| Endpoint                                              | What it does                                 |
+| ----------------------------------------------------- | -------------------------------------------- |
+| `POST /join`                                           | A code and a name in, a device token out.    |
+| `GET /sessions/:id/join-code`                          | What the students should type.               |
+| `POST /sessions/:id/join-code`                         | Mint a new one, and retire the old.          |
+| `GET /sessions/:id/teams`                              | The team sheet, and the limits it is held to.|
+| `POST /sessions/:id/teams`                             | Add a team.                                  |
+| `GET /sessions/:id/participants`                       | Everybody in the run.                        |
+| `PUT /sessions/:id/participants/:pid/team`             | Put somebody on a team, with a role.         |
+| `DELETE /sessions/:id/participants/:pid/team`          | Take them off it, leaving them in the run.   |
+| `DELETE /sessions/:id/participants/:pid`               | Take them out of the run.                    |
+
+**The code is designed for a nine-year-old reading a whiteboard.** The
+alphabet keeps one character out of each group people mix up — `0 O Q D`,
+`1 I L J`, `2 Z`, `5 S`, `6 G`, `8 B`, `U V` — which leaves 25, and six of
+those is 244 million codes. Reading one back is forgiving in the same
+direction: `normaliseJoinCode` upper-cases, throws away spaces and hyphens,
+and maps each dropped character onto the one its group kept, so a student who
+types `0` gets the `D` the code actually has.
+
+A code is not a secret and is not treated as one. It says which run you are
+joining and nothing about who you are. The device token handed out at the end
+of joining is the credential, and that is `mintOpaqueToken`'s 256 bits.
+
+**One read in the API is not scoped to an organisation, and it is this one.**
+A student typing a code has no account and no idea which school the API thinks
+they are in — that is what a join code is for. So `JoinCodeDirectory` looks a
+code up across every organisation, exactly as `AuthService` looks an account up
+by email before there is an organisation to scope to. Migration 0001 says the
+same thing in its own way: the unique index on `join_code` is not scoped
+either.
+
+Four things keep that crossing narrow. It reads **two columns** — `id` and
+`organisation_id`, so a code cannot be used to read a run. It reads **one
+table**. It only sees the **four joinable states**, so a code cannot reach a
+run that has ended. And every method takes a `reason`, the way
+`GlobalRepository` does. Everything after the lookup goes through a
+`TenantRepository` pinned to the organisation the code found, and
+`test/participation/isolation.test.ts` holds all of it to its word.
+
+**The limits come from the revision the run is pinned to.** `rules.teams` in
+the document (EXPD-002) says how big a team may be, how many teams there may
+be, and which role names exist. None of it is copied onto the run: it is read
+from the document each time it is enforced, so a class that started on
+revision 3 plays revision 3's rules however much the author changes
+afterwards. A run's capacity is `maxTeams × size.max`, and a run whose
+expedition caps no teams has no capacity limit here — what an organisation has
+paid for is EXPD-069's question.
+
+A document that is short of a field falls back to a wide default rather than
+throwing. Refusing to let a class join over a missing optional field would be
+the worse failure by a distance.
+
+**A student is in the run before they are on a team, and on one team at a
+time.** Joining puts somebody in the lobby; which team they end up on is a
+teacher's to say. Moving them ends one membership and starts another, and
+migration 0001's two partial unique indexes mean a bug here is refused by the
+database rather than stored. A student sent back to a team they were on
+before reuses the row from last time, because `UNIQUE (team_id, participant_id)`
+has no predicate on it.
+
+**One endpoint assigns a team and a role, and it is a PUT.** The body is the
+whole membership, so leaving `role` out means no role and leaving `isLeader`
+out means not the leader. That is how a role is taken away again, and it is
+why there is no second endpoint for doing so. A role the expedition does not
+hand out is `422` with the list of the ones it does — a teacher who typed
+`navigater` should be told, not quietly given a team with nobody navigating.
+
+**A phone that comes back is the same student.** Rejoining with the same
+device id finds the participant that phone already is, gives it a fresh token
+and lets it correct the name it typed the first time. A student a teacher
+removed is refused with `409` rather than `404`: they typed a code that really
+does reach a run, and "there is no such run" would send them round the loop of
+typing it again.
+
+**Removing somebody does three things in one transaction.** They are marked
+removed, their team membership is ended, and every device token their phone
+holds for that run is withdrawn. The last one is the point: a student who has
+been taken out of a lesson and whose phone goes on submitting work is not out
+of the lesson. The rows stay — a removed student is part of what happened, and
+their team's event stream (EXPD-014) points at them.
+
+**Reading a code is `session:read` and minting one is `session:write`,
+because a code belongs to the run.** Everything about the students is
+`participant:read` and `participant:write`, which a facilitator holds: running
+a class with somebody else's expedition is exactly the job of moving children
+between teams. A student's phone is refused all eight staff endpoints —
+`student-device` holds `participant:read`, so without `requireStaff()` a phone
+could draw the whole run's team sheet, and what a student's own app should see
+of its own run is EXPD-040 and EXPD-041.
+
+Another organisation's run answers `404` rather than `403`, for the reason
+EXPD-017 gives: "you may not touch that" would be telling Riverbank Academy
+that Portside School has a run with that id.
+
+| File                                     | What it holds                                       |
+| ---------------------------------------- | --------------------------------------------------- |
+| `participation/join-codes.ts`            | Making a code a child can read and type.            |
+| `participation/join-code-directory.ts`   | Turning one back into a run. The one unscoped read. |
+| `participation/team-rules.ts`            | The limits, read out of the pinned revision.        |
+| `participation/participation-repository.ts` | The four tables, through the tenant repository.  |
+| `participation/participation-service.ts` | The rules, and the transactions they run in.        |
+| `participation/views.ts`                 | What a client reads.                                |
+| `participation/routes.ts`                | The endpoints, and the stack in front of them.      |
+| `test/participation/`                    | 112 tests, over real sockets and real tokens.       |
+
+**What is deliberately not here.**
+
+1. **No entry in the audit log for joining, or for a code being reissued.**
+   The vocabulary EXPD-006 fixed gives this ticket two actions,
+   `participant.team-changed` and `participant.removed`, and both are written.
+   There is no action for a student arriving or for a code changing, and
+   widening the vocabulary is EXPD-006's to do rather than this ticket's.
+2. **No student-side team forming.** A student cannot make a team, pick one,
+   or hand themselves a role. The lobby the student app draws is EXPD-040 and
+   EXPD-041.
+3. **No seat or participant limits from the plan.** The only limits enforced
+   here are the ones the expedition's own document lays down. What an
+   organisation has paid for is EXPD-069.
+4. **Nothing about the run's lifecycle.** There is no endpoint that makes a
+   run, starts one, pauses one or ends one, and nothing here says which state
+   may follow which. That is EXPD-019, and it is why the tests seed a run
+   rather than creating one.
 
 ### Known gaps in `apps/student-mobile`
 

@@ -18,7 +18,7 @@ import type {
   ParticipantId,
 } from '@explorer/shared-types';
 
-import type { TenantRepository } from '../db/index.ts';
+import type { Queryable, TenantRepository } from '../db/index.ts';
 import { hashOpaqueToken, mintOpaqueToken } from '../auth/tokens.ts';
 import type {
   AuthRevocationReason,
@@ -56,6 +56,18 @@ export class DeviceRepository {
   /** The organisation every statement here is filtered by. */
   get organisationId(): OrganisationId {
     return this.#tenant.organisationId;
+  }
+
+  /**
+   * The same repository against a different connection, such as a transaction.
+   *
+   * Added by EXPD-018, which withdraws a student's device tokens in the same
+   * transaction that takes them out of the run: a student who is out of a
+   * lesson and whose phone is still submitting work is not out of it, and a
+   * removal that committed without the revocation would leave exactly that.
+   */
+  withConnection(db: Queryable): DeviceRepository {
+    return new DeviceRepository(this.#tenant.withConnection(db));
   }
 
   /**
@@ -143,6 +155,26 @@ export class DeviceRepository {
       { revoked_at: at, revoked_reason: reason },
     );
     return rows.length > 0;
+  }
+
+  /**
+   * Withdraws every device token one student holds (EXPD-018).
+   *
+   * What removing somebody from a run has to do: every phone that was
+   * signed in as them stops being able to exchange its token for an access
+   * token, and so stops being able to do anything at all.
+   */
+  async revokeDevicesForParticipant(
+    participantId: ParticipantId | string,
+    reason: AuthRevocationReason,
+    at: Date = new Date(),
+  ): Promise<number> {
+    const rows = await this.#tenant.update<ParticipantDeviceRow>(
+      'participant_device',
+      { participant_id: participantId, revoked_at: null },
+      { revoked_at: at, revoked_reason: reason },
+    );
+    return rows.length;
   }
 
   /**

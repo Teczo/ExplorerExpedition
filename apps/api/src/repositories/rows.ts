@@ -18,9 +18,12 @@ import type {
   ExpeditionStatus,
   JsonObject,
   MembershipRole,
+  ParticipantStatus,
   ProgressionEventReason,
   ScoreEventReason,
   ScoreLimitKind,
+  SessionStatus,
+  TeamStatus,
 } from '@explorer/shared-types';
 
 /** Why a sign-in or a device stopped being usable. Matches the enum in 0002. */
@@ -82,14 +85,23 @@ export interface AuthSessionRow {
   readonly revoked_reason: AuthRevocationReason | null;
 }
 
-/** A row of `participant`. */
+/**
+ * A row of `participant`.
+ *
+ * One student in one run, and not an account: most students play without one.
+ * `joined_at` and `left_at` were added by EXPD-018, which needs to know when
+ * somebody arrived to list a team sheet in the order it filled up, and when
+ * they went so that a student who was removed is not counted as present.
+ */
 export interface ParticipantRow {
   readonly id: string;
   readonly organisation_id: string;
   readonly expedition_session_id: string;
   readonly display_name: string;
-  readonly status: 'invited' | 'joined' | 'active' | 'left' | 'removed';
+  readonly status: ParticipantStatus;
   readonly device_id: string | null;
+  readonly joined_at: Date;
+  readonly left_at: Date | null;
 }
 
 /** A row of `participant_device`. */
@@ -298,4 +310,59 @@ export interface MissionTypeRow {
   readonly organisation_id: string | null;
   readonly type_key: string;
   readonly version: string;
+}
+
+/**
+ * A row of `expedition_session` (EXPD-018).
+ *
+ * One run of one expedition with one group of students. Only the columns the
+ * students, the teams and the join code need are spelled out; the clock
+ * columns belong to the ticket that owns the lifecycle (EXPD-019) and are
+ * added here by it.
+ */
+export interface ExpeditionSessionRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_id: string;
+  /** The revision this run is pinned to. Publishing a new one does not move it. */
+  readonly expedition_version_id: string;
+  readonly name: string;
+  readonly join_code: string;
+  readonly status: SessionStatus;
+  readonly host_user_id: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+/** A row of `team` (EXPD-018). One team in one run. */
+export interface TeamRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_session_id: string;
+  readonly name: string;
+  readonly status: TeamStatus;
+  readonly total_score: number;
+  readonly hint_tokens_remaining: number;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+/**
+ * A row of `team_member` (EXPD-018).
+ *
+ * Which student is on which team, and what they are doing there. `left_at` is
+ * what makes a row live: the two partial unique indexes in migration 0001
+ * count only the rows where it is NULL, so a student is on one team at a time
+ * and a team has at most one leader.
+ */
+export interface TeamMemberRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly team_id: string;
+  readonly participant_id: string;
+  /** One of the names `rules.teams.roles` lists, or NULL for no role. */
+  readonly role: string | null;
+  readonly is_leader: boolean;
+  readonly joined_at: Date;
+  readonly left_at: Date | null;
 }
