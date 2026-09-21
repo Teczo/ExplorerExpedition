@@ -10,6 +10,7 @@
  *     app.use(createHealthRouter());   // 2. before anything that can be slow
  *     app.use(express.json(...));      // 3. with a limit
  *     app.use('/auth', ...);           // 4. the feature routers
+ *     app.use('/expeditions', ...);    //    EXPD-017
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -23,6 +24,7 @@ import type { OrganisationId } from '@explorer/shared-types';
 
 import { readAuthConfig, type AuthConfig } from './config/auth-config.ts';
 import { AuthService, createAuthRouter } from './auth/index.ts';
+import { createExpeditionRouter } from './expeditions/index.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -109,7 +111,9 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(jsonBody());
 
   if (options.db !== undefined) {
-    app.use('/auth', createAuthRouter(buildAuthService(options.db, options.authConfig)));
+    const auth = buildAuthService(options.db, options.authConfig);
+    app.use('/auth', createAuthRouter(auth));
+    app.use('/expeditions', createExpeditionRouter({ db: options.db, auth }));
   }
 
   app.use(notFoundHandler());
