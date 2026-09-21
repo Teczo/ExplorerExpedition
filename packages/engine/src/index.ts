@@ -29,8 +29,11 @@
  * score changes and the progression changes as one numbered, sealed record,
  * so that a final result can be rebuilt from it and disputed line by line.
  *
- * The rest arrives in later tickets:
- *   EXPD-015  simulation harness
+ * The simulation harness (EXPD-015) is in `./simulation`. It is the first
+ * thing here that uses the engine rather than being part of it: it plays a
+ * whole expedition with fake teams, through the five doors above and no
+ * others, so that a test, a duration estimate and the AI builder's validation
+ * step all run the game the platform would have run.
  */
 
 import { APP_NAMES } from '@explorer/shared-types';
@@ -41,6 +44,7 @@ export * from './completion/index.ts';
 export * from './scoring/index.ts';
 export * from './progression/index.ts';
 export * from './stream/index.ts';
+export * from './simulation/index.ts';
 
 /** The version of the engine contract that callers are talking to. */
 export const ENGINE_VERSION = '0.1.0';

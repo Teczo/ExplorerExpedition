@@ -85,11 +85,12 @@ that says where a team stands on a mission (EXPD-010), the completion and
 validation interface every finished mission comes through (EXPD-011), the
 scoring engine that says what a verdict was worth (EXPD-012), and the
 progression engine that says what the graph comes to for one team
-(EXPD-013), and the auditable event stream that carries what both decided so
-a final result can be rebuilt and disputed (EXPD-014), all described below.
-The rest is tracked in its own tickets:
+(EXPD-013), the auditable event stream that carries what both decided so
+a final result can be rebuilt and disputed (EXPD-014), and the simulation
+harness that plays a whole expedition with fake teams so all six can be held
+to account at once (EXPD-015), all described below. The rest is tracked in its
+own tickets:
 
-- Mission Engine behaviour — EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -1338,10 +1339,148 @@ Three limits are worth knowing:
 2. **The running counts are still not in the stream.** The total is, exactly.
    The streak, the wrong answers and the hints spent are not, for the reason
    `TeamScore` gives, so a replay hands them back at nought.
-3. **Nothing calls this yet.** The attempt and submission endpoints (EXPD-020)
-   are what will write a line, once something opens a database connection
-   (EXPD-016), and the simulation harness (EXPD-015) is what will produce a
-   whole run to seal. What is here is the record, the rule and the reading.
+3. **Nothing stores this yet.** The attempt and submission endpoints
+   (EXPD-020) are what will write a line, once something opens a database
+   connection (EXPD-016). The simulation harness (EXPD-015) already produces
+   whole runs to seal, and `packages/engine/test/simulation/stream.test.ts` is
+   what holds the claims above to a real afternoon of play rather than to
+   events a test wrote by hand.
+
+### The simulation harness
+
+`packages/engine/src/simulation/` plays a whole expedition with fake teams and
+says what happened. It is the first thing in the engine that *uses* the engine
+rather than being part of it: it owns a clock and a random number, and it has
+them so that nothing else has to.
+
+```ts
+import { simulateExpedition } from '@explorer/engine';
+
+const report = simulateExpedition({ definition, teamCount: 5, seed: 'the-lake' });
+
+if (!report.playable) {
+  return report.findings.filter((finding) => finding.severity === 'error');
+}
+
+report.duration.medianSeconds;    // how long an afternoon of this takes
+report.teams[0]?.stream;          // the sealed record, to verify and replay
+```
+
+Three callers want three halves of the same answer. A **test** wants the
+per-team detail and the stream. An **author** wants `duration`. The **AI
+builder's validation step** (EXPD-066) wants `findings`: the short list of
+things that would go wrong on the day.
+
+**It plays the game through the engine's own doors and no others.** Every
+mission state comes out of `applyMissionTransition` (EXPD-010), every verdict
+out of `completeMission` (EXPD-011), every point out of `applyScoreChange`
+(EXPD-012), every locked door out of `evaluateProgression` (EXPD-013), and
+every line out of the stream's own sealer (EXPD-014). Nothing in the harness
+decides a game rule, so a run cannot pass where the platform would fail —
+which is the only reason a test would trust one.
+
+**The same seed gives the same run, down to the last timestamp.** Nothing
+reads `Date.now()` or `Math.random`. The clock is a number of seconds the
+harness moves forward itself, and the generator is mulberry32 written out in
+`random.ts` for the same reason SHA-256 is written out next door: the engine
+has no dependencies and may not grow one. Each team's generator is seeded from
+the run's seed and the team's own id, so adding a fourth team does not change
+what the first three did.
+
+**Teams are played in step, by the simulated clock.** At each turn the team
+furthest behind on its own clock moves. That buys the one thing running them
+one after another could not: `first-to-complete-bonus` means what it says,
+because whoever reaches a mission first in simulated time reaches it first in
+the run.
+
+#### The fake teams
+
+A team is six dials and a route, in `teams.ts`. `skill` is how often they get
+a mission right, rolled once per attempt; `paceSeconds` and `travelSeconds`
+are how long they take thinking and walking; `givesUp` is how often they walk
+away from a mission the rules let them walk away from; `usesHints` is how
+often they open a hint first. `simulatedTeams(5)` builds a class spread from
+quick and able to slow and struggling, dealing out the expedition's routes one
+team at a time, so the commonest use of the harness is a number rather than a
+list of objects.
+
+The numbers behind the middling team are a starting point an author can argue
+with rather than a claim about real classes. Every one of them is a dial.
+
+#### How work is judged
+
+The harness cannot know the answer to a mission. A hunt's codes are in its
+config and only the mission type knows which field is which — that is what the
+registry exists to prevent anybody unpicking. So there are two ways to judge a
+run, and `judging` picks one.
+
+`scripted` is the default, and it is what lets an expedition be played before
+anybody has built a mission type for it. The harness builds a **stand-in
+registry**: one type per `key@version` the document names, whose behaviour
+reads the intended outcome straight out of the submission. The run then goes
+through `completeMission` exactly as it would on the day — the attempt is
+counted, the location is checked, the teacher review still happens, the
+mission's own clock still runs — and nothing anywhere has a second opinion
+about what `correct` means. The obvious alternative, letting the harness move
+the mission itself, would have put a second copy of the outcome-to-trigger
+mapping in the engine, which is the one thing EXPD-011 exists to prevent.
+
+`behaviour` is what a test of a real mission type wants. The registry's own
+code judges, and a **player** per mission type key writes the payload a team
+hands in. A key with no player falls back to a payload built from the type's
+own submission schema, which is the right shape and almost never the right
+answer — so the report says `sampled-mission-type` rather than leaving a
+reader to conclude the expedition is unwinnable.
+
+#### What comes back
+
+`SimulationReport` holds three things.
+
+`teams` is the per-team detail: where every mission ended, how many tries it
+took, what it earned, the `MissionProgress` records, the `TeamScore`, the
+final `ProgressionSnapshot`, and the sealed stream.
+
+`duration` is built only from the teams that reached a finish — shortest,
+longest, median and mean — plus `unfinishedSeconds`, so an expedition nobody
+finished still says something about its own length.
+
+`findings` is the advice, worst first. An **error** means the expedition
+cannot be played as written: no start, no finish, a mission type no registry
+could hold, a mission teams finished the expedition without ever reaching, or
+not one team finishing at all. A **warning** means it can be played and
+something probably is not what the author meant: a mission everybody reached
+and nobody finished, a checkpoint hanging off the graph, a team left with
+nowhere to go. A **note** is about the run rather than the expedition.
+
+A finding is evidence, not a proof. A mission nobody reached is only an error
+once some team walked the expedition to its end — teams that gave up half way
+never got near the far side, and calling that a broken edge would send an
+author looking for something that is not there.
+
+#### The tests
+
+| File | What it holds to account |
+| ---- | ------------------------- |
+| `packages/engine/test/simulation/parts.test.ts` | The clock, the generator, the class of teams and the schema sampler, on their own. |
+| `packages/engine/test/simulation/determinism.test.ts` | That the same seed replays exactly, and that one team's luck does not depend on how many others are playing. |
+| `packages/engine/test/simulation/run.test.ts` | That a run really plays the game: modes, routes, timers, attempts, skipping, review, and what the scoring rules pay. |
+| `packages/engine/test/simulation/findings.test.ts` | One broken expedition per test, and what the run noticed about it. |
+| `packages/engine/test/simulation/duration.test.ts` | That the estimate moves when the expedition does, and is built from the teams that finished. |
+| `packages/engine/test/simulation/judging.test.ts` | Both ways of judging, and that the stand-ins and the real behaviours go through the same door. |
+| `packages/engine/test/simulation/stream.test.ts` | A whole run's record, verified and replayed the way an outsider would. |
+
+Three limits are worth knowing:
+
+1. **A run is about the teams that played it.** Three middling teams failing
+   to finish is worth reporting and is not a proof that nobody could. A caller
+   who wants more confidence runs more teams, or turns the dials.
+2. **A fake team does everything it is allowed to do.** It does not decide to
+   leave an optional mission alone, and it walks straight to a mission's area
+   rather than getting lost on the way. Modelling either is a product question
+   nobody has asked.
+3. **Nothing calls this yet.** The AI builder's validation step is EXPD-066,
+   and the API has no route that runs one. What is here is the runner, and the
+   tests that use it.
 
 ### Known gaps in `apps/student-mobile`
 
