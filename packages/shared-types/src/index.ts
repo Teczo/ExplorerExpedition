@@ -115,3 +115,13 @@ export * from './auth/index.ts';
  * Re-exported for the same reason as the two above.
  */
 export * from './audit/index.ts';
+
+/**
+ * Running an expedition with a group of students (EXPD-018).
+ *
+ * The states a run, a team and a student can be in, and which of them still
+ * count: the runs a join code can reach, the teams that use up a place, and
+ * the students who are still in the run. Re-exported for the same reason as
+ * the rest.
+ */
+export * from './participation/index.ts';

@@ -11,6 +11,8 @@
  *     app.use(express.json(...));      // 3. with a limit
  *     app.use('/auth', ...);           // 4. the feature routers
  *     app.use('/expeditions', ...);    //    EXPD-017
+ *     app.use('/join', ...);           //    EXPD-018
+ *     app.use('/sessions', ...);       //    EXPD-018
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -25,6 +27,10 @@ import type { OrganisationId } from '@explorer/shared-types';
 import { readAuthConfig, type AuthConfig } from './config/auth-config.ts';
 import { AuthService, createAuthRouter } from './auth/index.ts';
 import { createExpeditionRouter } from './expeditions/index.ts';
+import {
+  createJoinRouter,
+  createParticipationRouter,
+} from './participation/index.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -111,9 +117,17 @@ export function createApp(options: AppOptions = {}): Express {
   app.use(jsonBody());
 
   if (options.db !== undefined) {
-    const auth = buildAuthService(options.db, options.authConfig);
+    const db = options.db;
+    const authConfig = options.authConfig ?? readAuthConfig();
+    const auth = buildAuthService(db, authConfig);
+
     app.use('/auth', createAuthRouter(auth));
-    app.use('/expeditions', createExpeditionRouter({ db: options.db, auth }));
+    app.use('/expeditions', createExpeditionRouter({ db, auth }));
+    // EXPD-018. `/join` is on its own because it is the one router with no
+    // auth in front of it; `/sessions` is shared ground that EXPD-019 will
+    // mount its own router on.
+    app.use('/join', createJoinRouter({ db, auth, authConfig }));
+    app.use('/sessions', createParticipationRouter({ db, auth, authConfig }));
   }
 
   app.use(notFoundHandler());
