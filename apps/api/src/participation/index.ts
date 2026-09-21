@@ -18,8 +18,9 @@
  *   `routes.ts`                  The endpoints, and the stack in front of them.
  *
  * What is deliberately not here. Making a run, starting it, pausing it and
- * ending it are EXPD-019: this ticket gives a run its code and fills it with
- * students, and says nothing about which state may follow which. A student
+ * ending it are `../sessions/` (EXPD-019): this ticket gives a run its code
+ * and fills it with students, and says nothing about which state may follow
+ * which. A student
  * forming their own team from inside the app is EXPD-041. What an
  * organisation has paid for is EXPD-069 — the only limits enforced here are
  * the ones the expedition's own document lays down.
