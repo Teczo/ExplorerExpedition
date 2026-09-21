@@ -30,6 +30,7 @@ import type { AuditActor, Principal } from '@explorer/shared-types';
 
 import { AuthError } from '../auth/errors.ts';
 import { tenantOf } from '../auth/middleware.ts';
+import { REQUEST_ID_HEADER, requestIdOf } from '../http/request-id.ts';
 import { AuditLog, type AuditContext } from './audit-log.ts';
 
 declare global {
@@ -47,15 +48,13 @@ declare global {
 /**
  * The header a request id is read from.
  *
- * A proxy or a client sets it; nothing here mints one, because generating and
- * echoing a request id belongs to the REST skeleton in EXPD-016. Until that
- * lands, entries written by a request that carried no header simply have no
- * `request_id`, and everything else about them is unaffected.
+ * Minting one, trimming it and echoing it belongs to the REST skeleton
+ * (EXPD-016), so both the header name and the reader come from there and are
+ * re-exported here for the callers that already had them. An entry written by
+ * a request that never passed through `requestId()` and carried no header has
+ * no `request_id`, and everything else about it is unaffected.
  */
-export const REQUEST_ID_HEADER = 'x-request-id';
-
-/** The longest request id worth storing. Anything longer is somebody's mistake. */
-const MAX_REQUEST_ID_LENGTH = 200;
+export { REQUEST_ID_HEADER, requestIdOf };
 
 /**
  * Who a principal is, in the log's vocabulary.
@@ -102,15 +101,6 @@ export function auditContextOf(request: Request, actor: AuditActor): AuditContex
     userAgent: request.get('user-agent') ?? null,
     requestId: requestIdOf(request),
   };
-}
-
-/** The request id this request carries, or null. */
-export function requestIdOf(request: Request): string | null {
-  const header = request.get(REQUEST_ID_HEADER);
-  if (header === undefined || header.trim() === '') {
-    return null;
-  }
-  return header.slice(0, MAX_REQUEST_ID_LENGTH);
 }
 
 /**

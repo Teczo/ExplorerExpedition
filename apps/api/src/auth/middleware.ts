@@ -198,8 +198,12 @@ export function tenantOf(request: Request): TenantRepository {
 /**
  * Turns an `AuthError` thrown by a handler into a response.
  *
- * Mounted after the routes. Anything that is not an `AuthError` is passed on
- * to whatever error handling EXPD-016 puts in place.
+ * Mounted after the routes. Anything that is not an `AuthError` is passed on.
+ *
+ * `createApp` does not use this: `errorHandler` from `../http` (EXPD-016)
+ * knows `AuthError` already and answers in the same shape, and one error
+ * handler is better than two that have to be kept in step. It stays exported
+ * for a router stood up on its own, and for the tests that do exactly that.
  */
 export function authErrorHandler(): (
   error: unknown,
