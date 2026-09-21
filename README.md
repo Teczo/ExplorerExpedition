@@ -90,7 +90,9 @@ progression engine that says what the graph comes to for one team
 a final result can be rebuilt and disputed (EXPD-014), and the simulation
 harness that plays a whole expedition with fake teams so all six can be held
 to account at once (EXPD-015), and the REST API skeleton every endpoint from
-here on is built on (EXPD-016), all described below. The rest is tracked in its
+here on is built on (EXPD-016), and the first endpoints standing on it: the
+expeditions themselves, their drafts, and the publish that freezes a revision
+(EXPD-017), all described below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -1634,6 +1636,118 @@ $ curl -s localhost:3000/health/ready
 | `http/error-handler.ts`          | Turning anything that went wrong into that one body. |
 | `http/health.ts`                 | Alive, and ready.                                    |
 | `test/http/`                     | 65 tests, over real sockets. No fake `Request`.      |
+
+### Expeditions, drafts and publishing
+
+`apps/api/src/expeditions/` is the first feature router on the skeleton. An
+expedition is not one thing that gets edited: it is a row that keeps its id
+forever, and a stack of revisions. Everything worth reading lives in a
+revision, and that split is what lets publishing mean something — a class
+playing a published revision goes on playing exactly what their teacher
+published, however much the author changes afterwards.
+
+| Endpoint                                       | What it does                                    |
+| ---------------------------------------------- | ----------------------------------------------- |
+| `POST /expeditions`                            | Creates one, with revision 1 as a draft.        |
+| `GET /expeditions`                             | This organisation's, newest change first.       |
+| `GET /expeditions/:id`                         | One, with its draft and published revisions.    |
+| `GET /expeditions/:id/draft`                   | The document being worked on.                   |
+| `PUT /expeditions/:id/draft`                   | Saves a document over the draft.                |
+| `POST /expeditions/:id/publish`                | Freezes the draft.                              |
+| `GET /expeditions/:id/versions`                | Every revision, without the documents.          |
+| `GET /expeditions/:id/versions/:number`        | One revision, document and all.                 |
+
+**Three rules, and everything else follows from them.**
+
+1. **An expedition is its revisions.** Creating one writes two rows: the
+   `expedition`, and `expedition_version` 1 as a draft.
+2. **The draft is the newest revision, and there is at most one.** Saving
+   writes over it. When the newest revision has been published there is
+   nothing to write over, so a save starts the next one. Whether `PUT
+   /draft` wrote over revision 3 or started revision 4 is not the caller's
+   to decide and comes back in `version.definitionVersion`.
+3. **Publishing freezes a revision.** It is stamped with the time and the
+   person, and nothing writes to it again. A second publish is `409`: not a
+   bad request, simply nothing to publish.
+
+**A draft may be unfinished. A published revision may not.** This is the one
+place the two differ, and it is deliberate: an author should be able to save
+a half-built graph and come back to it tomorrow.
+
+```bash
+$ curl -X PUT .../expeditions/$ID/draft -d '{"definition": {...}}'
+{"version": {"definitionVersion": 2, "status": "draft", ...},
+ "definition": {...},
+ "issues": [{"path": "definition.missions[0]",
+             "message": "Mission \"alpha\" is not placed on any node, so no team could reach it."}]}
+```
+
+The save succeeded, and `issues` is the list the Studio draws under the
+author's nose while they work. Publishing runs the same check and refuses
+while the list is not empty — `422`, with every problem and the path to it.
+The check is `validateExpeditionDefinition` (EXPD-002); nothing here has a
+second opinion about what a valid expedition is.
+
+**Six fields are the platform's, whatever the client sent.** `id`,
+`definitionVersion`, `status`, `publishedAt`, `metadata.authoring` and its
+`source` are written over rather than refused, because an error message about
+a field nobody meant to send helps nobody. So a document cannot claim to be
+published, cannot claim to belong to another organisation, and cannot claim
+somebody else wrote it. `seal` in `documents.ts` is the only way a document
+reaches a row, so this is true in storage and not only in a response.
+
+What a request *does* have to carry is a name: `metadata.title`. The column is
+`NOT NULL`, and an expedition nobody can name is not a draft of anything.
+
+**The flat copy.** Migration 0001 asked this ticket to write `mission_instance`,
+`mission_node` and `hint` from the document "whenever the revision is saved",
+because a foreign key cannot point inside a JSON document and other rows have
+to point at missions and stops — an attempt (EXPD-020), a team's progress
+(EXPD-013), a QR marker (EXPD-032). The copy is derived and never
+authoritative: it is deleted and written again from the document on every
+save, so it cannot drift.
+
+A draft that does not validate keeps no copy at all. The database would refuse
+most half-finished ones anyway — two start nodes, a stop holding a mission
+that was deleted — and a stale copy would be worse than none, because
+something else would go on pointing at a mission the author has removed. A
+published revision is always valid, so it always has one.
+
+**Reading, writing and publishing are three permissions.** `expedition:read`,
+`expedition:write` and `expedition:publish`. A facilitator holds the first
+only: they run a class with an expedition somebody else built, and cannot put
+one in front of a class as finished. Another organisation's expedition answers
+`404` rather than `403`, because "you may not touch that" would be telling
+Riverbank Academy that Portside School has an expedition with that id.
+
+Every write is one transaction with its audit entry inside it, so a change and
+the record of who made it cannot exist without each other. The entries are
+`expedition.created`, `expedition.updated` and `expedition.published`, and the
+last one is about the revision rather than the expedition — which is what
+EXPD-006's vocabulary already said.
+
+| File                                 | What it holds                                      |
+| ------------------------------------ | -------------------------------------------------- |
+| `expeditions/documents.ts`           | The six fields the platform writes, and the little a draft has to be. |
+| `expeditions/expedition-repository.ts` | The two tables, through the tenant repository.    |
+| `expeditions/projection.ts`          | The flat copy other rows point at.                 |
+| `expeditions/expedition-service.ts`  | One draft, and publishing freezes it.              |
+| `expeditions/views.ts`               | What a client reads.                               |
+| `expeditions/routes.ts`              | The endpoints, and the stack in front of them.     |
+| `test/expeditions/`                  | 53 tests, over real sockets and real tokens.       |
+
+**What is deliberately not here.**
+
+1. **No archive, and no delete.** `expedition:delete` exists and
+   `expedition.deleted` is in the audit vocabulary, but retiring an expedition
+   has to decide what happens to the runs pointing at it, and runs are
+   EXPD-019.
+2. **No unpublish.** `expedition.unpublished` is in the vocabulary too. What it
+   should do to a session already playing that revision is EXPD-031's
+   question, not this one's.
+3. **No mission `config` checking.** Only the mission type knows the right
+   shape for it (EXPD-009), and resolving a document's types against the
+   registry is a copy of what they claimed, not a judgement on it.
 
 ### Known gaps in `apps/student-mobile`
 

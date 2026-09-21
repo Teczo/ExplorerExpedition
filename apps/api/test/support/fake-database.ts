@@ -178,7 +178,7 @@ export class FakeDatabase implements Queryable {
     names.forEach((name, index) => {
       row[name] = bound[index];
     });
-    row['id'] ??= `fake-${this.#nextId++}`;
+    row['id'] ??= generatedId(this.#nextId++);
 
     const stored = this.#tables.get(table) ?? [];
     stored.push(row);
@@ -400,6 +400,19 @@ function compileComparison(
   }
 
   throw new UnsupportedStatementError(text);
+}
+
+/**
+ * The id the fake gives a row that arrived without one.
+ *
+ * Shaped like a UUID rather than spelled `fake-1`, because a route checks a
+ * path parameter with `id()` before it runs (EXPD-016). A test that creates a
+ * row and then asks for it back by id has to be able to send the id it was
+ * given, and `fake-1` would be turned away at the edge.
+ */
+function generatedId(sequence: number): string {
+  const tail = String(sequence).padStart(12, '0');
+  return `00000000-0000-4000-8000-${tail}`;
 }
 
 /** Reads the value a `$n` placeholder stands for. */

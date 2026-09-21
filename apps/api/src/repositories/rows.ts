@@ -14,6 +14,8 @@ import type {
   AuditActorKind,
   AuditChanges,
   AuditEntityType,
+  AuthoringSource,
+  ExpeditionStatus,
   JsonObject,
   MembershipRole,
   ProgressionEventReason,
@@ -213,4 +215,87 @@ export interface TeamStreamHeadRow {
   readonly total_score: number;
   readonly stream_length: string;
   readonly stream_head_hash: string | null;
+}
+
+/**
+ * A row of `expedition` (EXPD-017).
+ *
+ * The expedition itself, across every revision. Nothing about what it holds
+ * is here: the document lives in `expedition_version`, and this row carries
+ * only what is true of the expedition however many revisions it has had.
+ */
+export interface ExpeditionRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly status: ExpeditionStatus;
+  readonly source: AuthoringSource;
+  readonly created_by: string | null;
+  readonly updated_by: string | null;
+  readonly archived_at: Date | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+/**
+ * A row of `expedition_version` (EXPD-017).
+ *
+ * One revision. `definition` is the whole EXPD-002 document and the source of
+ * truth for the revision; `title`, `summary` and `locale` are copied out of
+ * `definition.metadata` so that a list can be drawn without opening every
+ * document, and `VERSION_SUMMARY_COLUMNS` is the read that leaves the
+ * document behind.
+ */
+export interface ExpeditionVersionRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_id: string;
+  readonly definition_version: number;
+  readonly schema_version: string;
+  readonly status: ExpeditionStatus;
+  readonly definition: JsonObject;
+  readonly title: string;
+  readonly summary: string;
+  readonly locale: string;
+  readonly published_at: Date | null;
+  readonly published_by: string | null;
+  readonly created_by: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+/**
+ * A row of `mission_instance` (EXPD-017).
+ *
+ * Part of the flat copy of a revision: the mission as the rest of the
+ * platform points at it. Only the columns this ticket writes and reads back
+ * are spelled out; a ticket that reads more adds them here.
+ */
+export interface MissionInstanceRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_version_id: string;
+  readonly instance_key: string;
+  readonly mission_type_key: string;
+  readonly mission_type_version: string;
+  readonly mission_type_id: string | null;
+  readonly title: string;
+}
+
+/** A row of `mission_node` (EXPD-017). The flat copy of one stop. */
+export interface MissionNodeRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_version_id: string;
+  readonly node_key: string;
+  readonly kind: 'start' | 'mission' | 'checkpoint' | 'finish';
+  readonly title: string;
+  readonly mission_instance_id: string | null;
+}
+
+/** A row of `mission_type`, as far as EXPD-017 reads it. */
+export interface MissionTypeRow {
+  readonly id: string;
+  readonly organisation_id: string | null;
+  readonly type_key: string;
+  readonly version: string;
 }
