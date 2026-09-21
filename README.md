@@ -85,9 +85,11 @@ that says where a team stands on a mission (EXPD-010), the completion and
 validation interface every finished mission comes through (EXPD-011), the
 scoring engine that says what a verdict was worth (EXPD-012), and the
 progression engine that says what the graph comes to for one team
-(EXPD-013), all described below. The rest is tracked in its own tickets:
+(EXPD-013), and the auditable event stream that carries what both decided so
+a final result can be rebuilt and disputed (EXPD-014), all described below.
+The rest is tracked in its own tickets:
 
-- Mission Engine behaviour — EXPD-014 and EXPD-015
+- Mission Engine behaviour — EXPD-015
 - REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
@@ -136,15 +138,18 @@ the rest of the validator is not part of any ticket that has been done.
 
 `apps/api/db/migrations/` holds the PostgreSQL schema as numbered SQL files.
 `0001_core_data_model.sql` creates all 25 tables, from `organisation` down to
-`audit_log`, and `0003_append_only_audit_log.sql` makes the last of those a
-table nothing can edit. `apps/api/db/README.md` explains how to apply them and how the
-tables are laid out.
+`audit_log`, `0003_append_only_audit_log.sql` makes the last of those a table
+nothing can edit, and `0004_auditable_event_stream.sql` adds
+`progression_event` and holds it and `score_event` to the same rule.
+`apps/api/db/README.md` explains how to apply them and how the tables are laid
+out.
 
 ```bash
 createdb explorer
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_model.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -1028,8 +1033,8 @@ Four limits are worth knowing:
 4. **Nothing calls this yet.** The mission attempt and submission endpoints
    (EXPD-020) are what will, once something opens a database connection
    (EXPD-016). Carrying the stream across the system — storing it, ordering
-   it, proving nothing edited it — is EXPD-014, and this is the value that
-   stream is made of.
+   it, proving nothing edited it — is EXPD-014, below, and this is the value
+   that stream is made of.
 
 ### Progression and unlock evaluation
 
@@ -1170,6 +1175,173 @@ Four limits are worth knowing:
 4. **Nothing calls this yet.** The mission board (EXPD-042) and the attempt
    endpoints (EXPD-020) are what will, once something opens a database
    connection (EXPD-016).
+
+### The auditable event stream
+
+A score event says what a team earned. A progression event says what they were
+allowed to do. Neither says when it happened relative to the other, and
+neither says it was not added afterwards. `packages/engine/src/stream/`
+carries both as one numbered, sealed record, so that any final result can be
+rebuilt from the record by anybody and argued with line by line.
+
+```ts
+import {
+  appendProgressionEvents,
+  appendScoreEvents,
+  openStream,
+  progressionEventsBetween,
+  replayStream,
+  verifyStream,
+} from '@explorer/engine';
+
+let stream = openStream();
+
+const scored = applyScoreChange({ kind: 'mission', ... });   // EXPD-012
+if (scored.applied) {
+  stream = appendScoreEvents(stream, scored.events);
+}
+
+stream = appendProgressionEvents(                            // EXPD-013
+  stream,
+  progressionEventsBetween(before, after, now),
+);
+
+const check = verifyStream(stream, { expectedTotal: team.totalScore });
+const result = replayStream(stream);      // the 340, and where it came from
+```
+
+**One stream per team, and one number line through it.** The two kinds of
+event share the numbering rather than each keeping their own, because a final
+result is an argument about order as much as about arithmetic: a bonus awarded
+for finishing a mission the team was never shown is a different complaint from
+one awarded a second too late, and only one numbering can tell them apart.
+`sequence` starts at 1 and never skips. Ordering by a timestamp would not do:
+two lines can share a millisecond, a clock can step backwards, and a
+submission queued offline (EXPD-048) is stamped an hour before the line that
+follows it.
+
+**Each line seals the one before it.** `hash` is SHA-256 over the line's own
+contents *and* `previousHash`, so a line cannot be changed, removed, reordered
+or slipped in without every hash after it disagreeing. The seal is over the
+number as well as the contents, so a line moved from place 9 to place 4 seals
+differently even though not one character of the event changed.
+
+The hash is written out in `hash.ts` rather than taken from anywhere, because
+the engine has no dependencies and may not grow one. `node:crypto` would have
+needed `@types/node` on the package to typecheck, which is a dependency, and
+would have made the engine Node-only — while a results screen checking a total
+in a browser is exactly the use this record is for. It is FIPS 180-4 as
+published, and `hash.test.ts` holds it to the published vectors rather than to
+itself: a hash that is self-consistent and wrong would pass every other test
+here and be worthless the first time somebody checked it with another tool.
+
+**Progression events are new, and they are the other half of a result.** A
+`ProgressionSnapshot` (EXPD-013) answers "where does this team stand" and
+answers it from scratch every time, against today's document and today's
+clock. It cannot answer "the app never showed us mission four", which is the
+dispute teams actually have. So whoever moves a team compares the snapshot
+before with the snapshot after, and `progressionEventsBetween` writes down
+what changed. Five reasons: `node-reached`, `node-cleared`, `mission-unlocked`,
+`mission-revealed`, `expedition-finished`. Only doors that *opened* are written
+down — a mission relocked in `strict` mode because it is somebody else's turn
+is not something anybody disputes.
+
+**A stream can be checked, and the check says where.** `verifyStream` reports
+every defect it finds, each naming a line, rather than stopping at the first:
+`out-of-order`, `broken-chain`, `edited`, and `total-disagrees` when a check
+was given a total to hold the stream to. "Line 14 does not match its own seal"
+is an answer somebody can act on, and "the stream is invalid" is not. An
+edited line is reported once rather than as an avalanche, because the chain is
+followed by the seal each line carries rather than by the seal its contents
+come to.
+
+**A result is rebuilt from the stream and nothing else.** No expedition
+document, no scoring rule, no other team, no clock. `replayStream` gives the
+total, what each of the ten reasons was worth, what each mission came to, the
+stops reached and cleared, the missions unlocked and revealed, and whether the
+team finished. `replayTeamScore` gives back the `TeamScore` that
+`applyScoreChange` takes, which is what EXPD-020 will use to pick a run up
+part way through — the total exact, and the streak, failed attempts and hints
+spent at nought, because those were never in the stream and rebuilding them
+means replaying the game rather than the score.
+
+It reads the record; it does not re-judge it. Whether a `speed-bonus` of 25
+should have been awarded at all is a question about the rules, and running the
+rules over a run again is the simulation harness (EXPD-015).
+
+#### Where it is stored
+
+`0004_auditable_event_stream.sql` is the half of the ticket the database
+keeps. It creates `progression_event`, adds `stream_sequence`,
+`previous_hash` and `hash` to it and to `score_event`, puts the head of the
+chain on `team` in `stream_length` and `stream_head_hash` beside
+`total_score`, and attaches to both tables the same triggers 0003 wrote for
+`audit_log` — which is what 0003 said it was leaving them for:
+
+```
+UPDATE score_event SET points = 500;
+ERROR:  score_event is append-only: UPDATE is not allowed on it
+HINT:  Correct a wrong entry by appending another entry that says so.
+```
+
+It also adds four columns `score_event` was missing, and they are not a tidy
+up. The seal is taken over the engine's event, which names a mission and a
+hint by the ids the *definition document* uses while `score_event` named both
+by the uuid of a row in another table — so a reader checking a seal would have
+had to join to `mission_instance` and `hint`, and a line about a mission since
+deleted could not have been checked at all. `mission_instance_key` and
+`hint_key` are those ids, the way `scoring_rule_key` already was;
+`attempt_number` is which try it was; and `limit_kind` with
+`limit_would_have_been` is what a cap or a floor trimmed, which the record
+could not say before and which is precisely the conversation a cap causes.
+The keys are the record and the uuids are the join, so a line may carry a key
+alone and never a uuid alone.
+
+`apps/api/src/stream/` carries it. `TeamStream` takes the team row
+`FOR UPDATE`, reads the head, seals, inserts and writes the head back, all in
+one transaction — which is what makes the numbering hold when two phones
+submit at once, and why it refuses to write outside a transaction at all.
+There is no method on it that changes a line and none that removes one, the
+same way there is none on `AuditLog`.
+
+`score_event` loses its foreign keys, all nine, the way `audit_log` lost its
+three. Three were `ON DELETE CASCADE`, which is a `DELETE` the database itself
+runs and the rule above would refuse. A team's result is disputed after the
+afternoon is over and sometimes after the session has been tidied away, so a
+line outliving the rows it names is the behaviour wanted rather than the price
+of one. `organisation_id` still scopes every read, because the repository
+layer keys off the column and not off a constraint.
+
+`live_event` stays out of all of it. It is the realtime channel's replay
+buffer (EXPD-023) rather than a record anything is decided by.
+
+#### The tests
+
+| File | What it holds to account |
+| ---- | ------------------------- |
+| `packages/shared-types/test/stream/vocabulary.test.ts` | The five progression reasons against the column, and the four defect codes. |
+| `packages/engine/test/stream/hash.test.ts` | That the seal is SHA-256 as published, and that the same line always becomes the same bytes. |
+| `packages/engine/test/stream/chain.test.ts` | Editing, removing, inserting, reordering and resealing a stream — each caught, each named. |
+| `packages/engine/test/stream/replay.test.ts` | That a result is rebuilt from the stream alone, and stops where the stream stops. |
+| `packages/engine/test/stream/progression-events.test.ts` | That every door that opened is written once, in the order it opened. |
+| `apps/api/test/stream/round-trip.test.ts` | That a stored line is the line that was sealed, field by awkward field. |
+| `apps/api/test/stream/team-stream.test.ts` | One number line across two tables, the lock, the head on `team`, and the absent methods. |
+
+Three limits are worth knowing:
+
+1. **The seal is not a signature.** It proves nobody edited the stream *in
+   place*, which is what a wrong total looks like. It does not prove who wrote
+   it, and somebody able to rewrite every row from a given line onwards could
+   reseal the lot. Two things already stand in the way, and both are
+   elsewhere: the tables take an `INSERT` and nothing else, and `audit_log`
+   (EXPD-006) records who touched what.
+2. **The running counts are still not in the stream.** The total is, exactly.
+   The streak, the wrong answers and the hints spent are not, for the reason
+   `TeamScore` gives, so a replay hands them back at nought.
+3. **Nothing calls this yet.** The attempt and submission endpoints (EXPD-020)
+   are what will write a line, once something opens a database connection
+   (EXPD-016), and the simulation harness (EXPD-015) is what will produce a
+   whole run to seal. What is here is the record, the rule and the reading.
 
 ### Known gaps in `apps/student-mobile`
 
