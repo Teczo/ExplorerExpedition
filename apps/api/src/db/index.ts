@@ -7,7 +7,7 @@
  *
  * Where to look:
  *
- *   `queryable.ts`         The hole the database driver goes in (EXPD-016).
+ *   `queryable.ts`         The hole the database driver goes in.
  *   `tables.ts`            Which tables belong to an organisation.
  *   `sql.ts`               Building parameterised statements.
  *   `tenant-repository.ts` Reads and writes, always scoped to one organisation.

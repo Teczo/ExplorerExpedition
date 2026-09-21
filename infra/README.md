@@ -13,10 +13,12 @@ The Azure baseline for the platform (EXPD-007), as Bicep. Two environments,
 | Azure Cache for Redis                      | The realtime channel and leaderboards (EXPD-022, EXPD-023).     |
 | Key Vault, three secrets                   | How the connection strings reach the web app.                   |
 
-Nothing in the repository connects to any of them yet. The API opens its first
-connection in EXPD-016, and `apps/api/src/app.ts` serves the health check until
-it does. Nothing puts that code on the web app either: this creates the place
-the API runs, and EXPD-008 is what deploys into it.
+Nothing in the repository connects to any of them yet — a driver is a
+dependency no ticket has added. `apps/api/src/app.ts` serves the health checks
+(EXPD-016) until one does, and `/health/ready` reports the connection as
+`not-configured` rather than failing. Nothing puts that code on the web app
+either: this creates the place the API runs, and EXPD-008 is what deploys into
+it.
 
 ## Layout
 
@@ -151,10 +153,9 @@ curl "$(az deployment group show -g rg-explorer-dev -n expd-007-dev \
   --query properties.outputs.apiUrl.value -o tsv)/health"
 ```
 
-`{"status":"ok","engineVersion":"..."}` means the plan, the app, the runtime
-and the startup command are right. It still does not exercise PostgreSQL or
-Redis, because nothing in the repository opens a connection to either yet
-(EXPD-016).
+`{"status":"ok","apiVersion":"...","engineVersion":"...","uptimeSeconds":...}`
+means the plan, the app, the runtime and the startup command are right. It still does not exercise PostgreSQL or
+Redis, because nothing in the repository opens a connection to either yet.
 
 prod is the same seven steps with `rg-explorer-prod` and
 `main.prod.bicepparam`.

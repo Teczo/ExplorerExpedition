@@ -1,11 +1,12 @@
 /**
  * The hole where the database driver goes.
  *
- * EXPD-004 builds the repository layer, but opening a connection is EXPD-016,
- * and no driver has been added to the repository yet. So the repository layer
- * is written against this interface instead of against a client.
+ * EXPD-004 builds the repository layer, but no driver has been added to the
+ * repository yet — one is a dependency, and no ticket has been allowed to add
+ * one. So the repository layer is written against this interface instead of
+ * against a client, and `createApp` takes the connection from its caller.
  *
- * The shape is `pg`'s on purpose. When EXPD-016 adds the driver, a `pg.Pool`
+ * The shape is `pg`'s on purpose. When a ticket adds the driver, a `pg.Pool`
  * and a `pg.PoolClient` both satisfy `Queryable` as they are, with no adapter
  * in between.
  */

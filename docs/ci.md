@@ -191,4 +191,4 @@ Written down here rather than discovered later.
    deploy is the same one the App Service probe makes. It proves the plan, the
    runtime, the startup command and the package are right, and it does not
    touch PostgreSQL or Redis, because nothing in the repository opens a
-   connection to either yet (EXPD-016).
+   connection to either yet.

@@ -65,10 +65,11 @@ And the two the pipeline runs, which work the same on your own machine:
 | `scripts/package-api.sh`         | Builds the zip App Service runs, and checks it. |
 | `scripts/package-web.sh studio`  | Builds what Vercel serves, for one app.     |
 
-Check the API is up:
+Check the API is up, and whether it can reach what it needs:
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:3000/health         # is the process alive?
+curl http://localhost:3000/health/ready   # can it serve a real request?
 ```
 
 ## State of the code
@@ -88,10 +89,10 @@ progression engine that says what the graph comes to for one team
 (EXPD-013), the auditable event stream that carries what both decided so
 a final result can be rebuilt and disputed (EXPD-014), and the simulation
 harness that plays a whole expedition with fake teams so all six can be held
-to account at once (EXPD-015), all described below. The rest is tracked in its
+to account at once (EXPD-015), and the REST API skeleton every endpoint from
+here on is built on (EXPD-016), all described below. The rest is tracked in its
 own tickets:
 
-- REST API skeleton — EXPD-016
 - Studio shell — EXPD-024
 - Student app shell — EXPD-040
 - Creator web shell — EXPD-049
@@ -160,9 +161,11 @@ copy of the parts that runtime rows have to hold a foreign key to, since a
 mission attempt cannot point at a string buried in a JSONB document. EXPD-017
 writes both together.
 
-Nothing in the repository connects to a database yet. Opening a connection is
-EXPD-016, and choosing a migration runner needs a dependency, which no ticket
-has added.
+Nothing in the repository connects to a database yet. A driver is a
+dependency, and so is a migration runner, and no ticket has been allowed to add
+one. The REST skeleton (EXPD-016) left the hole open rather than filling it:
+`createApp({ db })` takes a connection from its caller, and nothing calls it
+that way.
 
 ### Auth and organisation tenancy
 
@@ -234,10 +237,10 @@ export AUTH_TOKEN_SECRET="$(openssl rand -base64 48)"
 `AUTH_DEVICE_TOKEN_SECONDS` (14 days) are optional.
 
 The auth routes are mounted only when `createApp` is given a database.
-Nothing in the repository opens a connection yet — that is EXPD-016, and it
-needs a driver, which is a dependency no ticket has added. `pg.Pool` already
-satisfies the `Queryable` interface the repository layer is written against,
-so EXPD-016 has nothing to write but the pool:
+Nothing in the repository opens a connection yet, because a driver is a
+dependency no ticket has added. `pg.Pool` already satisfies the `Queryable`
+interface the repository layer is written against, so the ticket that adds it
+has nothing to write but the pool:
 
 ```ts
 createApp({ db: new Pool({ connectionString: process.env.DATABASE_URL }) });
@@ -628,7 +631,7 @@ Two limits are worth knowing:
    input. That is a creator holding up their own organisation's Studio rather
    than a student reaching anything, so the platform compiles what it is given.
 2. Nothing loads a mission type from the database yet, because nothing opens a
-   connection (EXPD-016). The registry takes types from whoever builds it, and
+   connection. The registry takes types from whoever builds it, and
    the row shape is already the shape it takes, so reading them is a query and
    a loop rather than a translation.
 
@@ -887,8 +890,8 @@ Three limits are worth knowing:
    mission that has already finished, which is a live override (EXPD-058),
    because the state machine has no edge out of a finished mission.
 3. **Nothing calls this yet.** The mission attempt and submission endpoints
-   (EXPD-020) are what will, once something opens a database connection
-   (EXPD-016). What a verdict is worth is EXPD-012, and what a completed
+   (EXPD-020) are what will, once something opens a database connection.
+   What a verdict is worth is EXPD-012, and what a completed
    mission unlocks is EXPD-013; both read what this produces rather than
    producing it again.
 
@@ -1032,8 +1035,8 @@ Four limits are worth knowing:
    is counted as spent whether or not a rule charged for it, because the
    `fewest-hints-used` tie break counts hints.
 4. **Nothing calls this yet.** The mission attempt and submission endpoints
-   (EXPD-020) are what will, once something opens a database connection
-   (EXPD-016). Carrying the stream across the system — storing it, ordering
+   (EXPD-020) are what will, once something opens a database connection.
+   Carrying the stream across the system — storing it, ordering
    it, proving nothing edited it — is EXPD-014, below, and this is the value
    that stream is made of.
 
@@ -1175,7 +1178,7 @@ Four limits are worth knowing:
    route is EXPD-018, so the columns are theirs to add.
 4. **Nothing calls this yet.** The mission board (EXPD-042) and the attempt
    endpoints (EXPD-020) are what will, once something opens a database
-   connection (EXPD-016).
+   connection.
 
 ### The auditable event stream
 
@@ -1341,7 +1344,7 @@ Three limits are worth knowing:
    `TeamScore` gives, so a replay hands them back at nought.
 3. **Nothing stores this yet.** The attempt and submission endpoints
    (EXPD-020) are what will write a line, once something opens a database
-   connection (EXPD-016). The simulation harness (EXPD-015) already produces
+   connection. The simulation harness (EXPD-015) already produces
    whole runs to seal, and `packages/engine/test/simulation/stream.test.ts` is
    what holds the claims above to a real afternoon of play rather than to
    events a test wrote by hand.
@@ -1481,6 +1484,156 @@ Three limits are worth knowing:
 3. **Nothing calls this yet.** The AI builder's validation step is EXPD-066,
    and the API has no route that runs one. What is here is the runner, and the
    tests that use it.
+
+### The REST API skeleton
+
+`apps/api/src/http/` is what every endpoint after this one is built on. It
+holds no endpoint of its own beyond the health checks, and it knows nothing
+about expeditions, missions or teams. That is the point of it: the error
+contract, the request id, the body limit and the 404 are decided once, so no
+two endpoints can decide them differently.
+
+`createApp` in `apps/api/src/app.ts` is the only place that says what order
+the pieces run in:
+
+```ts
+app.use(requestId());            // 1. before anything that can fail
+app.use(createHealthRouter());   // 2. before anything that can be slow
+app.use(express.json(...));      // 3. with a 1 MB limit
+app.use('/auth', ...);           // 4. the feature routers
+app.use(notFoundHandler());      // 5. nothing claimed the path
+app.use(errorHandler());         // 6. the last word
+```
+
+A later ticket adds a router at step 4 and writes none of the rest.
+
+**One error body, whatever went wrong.**
+
+```json
+{ "error": "validation-failed", "message": "Some of what was sent is not valid.",
+  "details": [{ "path": "name", "message": "This cannot be empty." }] }
+```
+
+`error` is a stable code to branch on; `message` is English for a person and
+may be reworded at any time, so nothing should read it. Only a validation
+failure carries `details`. `AuthError` (EXPD-004) already answered in this
+shape, so the two are one contract rather than two that look alike, and
+`errorHandler` passes an `AuthError` through with its own code and the
+`WWW-Authenticate` header a 401 needs.
+
+| Code                     | Status | When                                        |
+| ------------------------ | ------ | ------------------------------------------- |
+| `bad-request`            | 400    | Unreadable JSON, a malformed parameter.     |
+| `not-found`              | 404    | Nothing lives at that address.              |
+| `method-not-allowed`     | 405    | That address does not answer to that method.|
+| `conflict`               | 409    | It contradicts what already exists.         |
+| `payload-too-large`      | 413    | Over the 1 MB body limit.                   |
+| `unsupported-media-type` | 415    | Not a media type this API reads.            |
+| `validation-failed`      | 422    | Readable, but wrong. Carries `details`.     |
+| `service-unavailable`    | 503    | Something the API depends on is not there.  |
+| `internal-error`         | 500    | A fault on our side.                        |
+
+A 500 says one sentence and nothing else — not the message, not the stack, not
+the name of a table. The whole error goes to the log with the request id, and
+the caller has the same id in the response header.
+
+Express 5 forwards a rejected promise from an `async` handler to the error
+handler by itself, so there is no `asyncHandler` wrapper here and no route
+needs one.
+
+**A request id on every answer.** `requestId()` keeps the `X-Request-Id` a
+proxy or a client sent, trimmed to 200 characters, and mints a UUID when there
+is none. It is echoed on every response, not only on errors, so a client can
+record the id of a call that succeeded and later turned out to be wrong. The
+audit log (EXPD-006) writes the same id, which is what ties an entry to the
+answer somebody was shown.
+
+**Validation before the handler.** A handler never reads `request.body` and
+wonders:
+
+```ts
+const Body = object({
+  name: string({ min: 1, max: 120 }),
+  teamSize: integer({ min: 1, max: 8 }),
+  visibility: oneOf(['private', 'organisation'] as const),
+  notes: optional(string({ max: 2000 })),
+});
+
+router.post('/expeditions', validateBody(Body), (request, response) => {
+  const body = bodyOf(request, Body);   // typed, and already checked
+});
+```
+
+Everything wrong is reported at once, each with the path to the field, because
+a client that has to fix one mistake per round trip is a client whose user
+gives up. A query issue is reported as `?limit` and a path parameter as `:id`,
+so a path means one thing. An unknown field is refused rather than ignored: a
+misspelled `title` that silently does nothing is the worst kind of bug to be
+on the receiving end of.
+
+The checkers are `string`, `integer`, `boolean`, `oneOf`, `id`, `timestamp`,
+`array`, `object`, `optional`, `withDefault` and `unchecked`, and they are
+hand-written because a schema library is a dependency and no ticket has added
+one. They check the *shape of a request* and no more. They do not check an
+expedition document — `validateExpeditionDefinition` (EXPD-002) owns that, and
+`definition()` is how a route hands over to it while keeping one error
+contract.
+
+**Two health checks, because they answer different questions.**
+
+| Endpoint        | Question                       | Answer                        |
+| --------------- | ------------------------------ | ----------------------------- |
+| `/health`       | Is this process alive?         | Always 200 while it is.       |
+| `/health/ready` | Can it serve a real request?   | 200, or 503.                  |
+
+`/health` is what the App Service probe calls (EXPD-007) and what
+`scripts/package-api.sh` asks the built package before it ships it. It touches
+nothing outside the process, on purpose: a liveness probe that fails when the
+database is slow tells the platform to restart every instance at the moment
+restarting helps least.
+
+`/health/ready` asks the database `SELECT 1`, with a two-second timeout, and
+answers 503 when it does not come back. It says `not-configured` rather than
+failing when `createApp` was given no database, because an API with no
+database is a deliberate arrangement here and not a broken one. It says
+nothing about *why* a check failed — that is in the log. Nothing routes
+traffic on it today.
+
+```bash
+$ curl -s localhost:3000/health/ready
+{"status":"ok","apiVersion":"0.1.0","engineVersion":"0.1.0","uptimeSeconds":12,
+ "checks":{"database":"not-configured"}}
+```
+
+**What is deliberately not here.**
+
+1. **No database connection.** `createApp({ db })` still takes one from its
+   caller, and nothing in the repository calls it that way, because a driver
+   is a dependency and no ticket has added one. `pg.Pool` satisfies
+   `Queryable` as it is, so the ticket that adds it writes one line:
+
+   ```ts
+   createApp({ db: new Pool({ connectionString: process.env.DATABASE_URL }) });
+   ```
+
+2. **No route version prefix.** Paths are what they were: `/auth/sign-in`, not
+   `/v1/auth/sign-in`. `API_VERSION` in `http/health.ts` is the version of the
+   contract, reported by the health checks, and is not a prefix. Adding one
+   would change an endpoint EXPD-004 has already published, which is not this
+   ticket's to change.
+
+3. **No rate limiting, no CORS, no request logging middleware.** Each is
+   somebody's ticket or somebody's dependency, and none of them is in this
+   one's scope.
+
+| File                             | What it holds                                        |
+| -------------------------------- | ---------------------------------------------------- |
+| `http/request-id.ts`             | Giving every request a name, and echoing it.         |
+| `http/errors.ts`                 | What the API refuses, and the one body it says so in.|
+| `http/validation.ts`             | Checking what a request sent.                        |
+| `http/error-handler.ts`          | Turning anything that went wrong into that one body. |
+| `http/health.ts`                 | Alive, and ready.                                    |
+| `test/http/`                     | 65 tests, over real sockets. No fake `Request`.      |
 
 ### Known gaps in `apps/student-mobile`
 
