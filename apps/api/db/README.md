@@ -21,6 +21,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tena
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0005_session_lifecycle.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0006_mission_play.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
@@ -44,7 +45,7 @@ part way through leaves the database exactly as it was.
 | Authoring | `expedition`, `expedition_version`, `mission_type`, `mission_template` |
 | Inside one revision | `mission_instance`, `mission_node`, `hint` |
 | Running an expedition | `expedition_session`, `participant`, `team`, `team_member` |
-| Playing a mission | `mission_attempt`, `submission` |
+| Playing a mission | `mission_attempt`, `submission`, `mission_transition`, `hint_request` |
 | Assets and rewards | `media_asset`, `badge`, `ar_asset`, `qr_marker`, `inventory_item` |
 | Event streams | `score_event`, `progression_event`, `live_event`, `audit_log` |
 

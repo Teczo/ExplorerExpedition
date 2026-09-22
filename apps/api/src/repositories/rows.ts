@@ -18,6 +18,10 @@ import type {
   ExpeditionStatus,
   JsonObject,
   MembershipRole,
+  MissionState,
+  MissionTransitionActor,
+  MissionTrigger,
+  MissionTypeStatus,
   ParticipantStatus,
   ProgressionEventReason,
   ScoreEventReason,
@@ -313,6 +317,22 @@ export interface MissionTypeRow {
 }
 
 /**
+ * A row of `mission_type`, the whole of it (EXPD-020).
+ *
+ * Everything a `MissionTypeDefinition` is made of, which is what the registry
+ * a submission is judged against is built from.
+ */
+export interface MissionTypeDefinitionRow extends MissionTypeRow {
+  readonly name: string;
+  readonly description: string;
+  readonly status: MissionTypeStatus;
+  readonly capabilities: readonly string[];
+  readonly config_schema: JsonObject;
+  readonly submission_schema: JsonObject;
+  readonly default_config: JsonObject;
+}
+
+/**
  * A row of `expedition_session` (EXPD-018, EXPD-019).
  *
  * One run of one expedition with one group of students. The first block is
@@ -380,4 +400,97 @@ export interface TeamMemberRow {
   readonly is_leader: boolean;
   readonly joined_at: Date;
   readonly left_at: Date | null;
+}
+
+/**
+ * The columns of `team` that play reads and writes (EXPD-020).
+ *
+ * The three running counts are EXPD-012's `TeamScore` fields that the score
+ * stream does not carry, stored beside the total by migration 0006.
+ */
+export interface TeamPlayRow extends TeamRow {
+  readonly streak: number;
+  readonly longest_streak: number;
+  readonly failed_attempts: number;
+}
+
+/** The states one try can be in. Matches `attempt_status` in 0001. */
+export type AttemptStatus =
+  | 'open'
+  | 'submitted'
+  | 'awaiting-review'
+  | 'succeeded'
+  | 'failed'
+  | 'expired'
+  | 'skipped';
+
+/** The states one submission can be in. Matches `submission_status` in 0001. */
+export type SubmissionStatus = 'pending' | 'needs-review' | 'accepted' | 'rejected';
+
+/** A row of `mission_attempt` (EXPD-020). One try at one mission by one team. */
+export interface MissionAttemptRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_session_id: string;
+  readonly team_id: string;
+  readonly mission_instance_id: string;
+  readonly opened_by: string | null;
+  readonly attempt_number: number;
+  readonly status: AttemptStatus;
+  readonly started_at: Date;
+  readonly deadline_at: Date | null;
+  readonly completed_at: Date | null;
+  readonly awarded_points: number | null;
+}
+
+/** A row of `submission` (EXPD-020). What a team handed in for one try. */
+export interface SubmissionRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly mission_attempt_id: string;
+  readonly participant_id: string | null;
+  readonly payload: JsonObject;
+  readonly status: SubmissionStatus;
+  readonly is_late: boolean;
+  readonly submitted_at: Date;
+  readonly received_at: Date;
+  readonly reviewed_at: Date | null;
+  readonly reviewed_by: string | null;
+  readonly review_note: string | null;
+}
+
+/**
+ * A row of `mission_transition` (EXPD-020).
+ *
+ * One line of one mission's history for one team, as the engine wrote it.
+ * Append-only: a mission state is replayed from these and never stored.
+ */
+export interface MissionTransitionRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_session_id: string;
+  readonly team_id: string;
+  readonly mission_instance_key: string;
+  readonly mission_attempt_id: string | null;
+  readonly sequence: number;
+  readonly from_state: MissionState;
+  readonly to_state: MissionState;
+  readonly trigger: MissionTrigger;
+  readonly actor: MissionTransitionActor;
+  readonly attempt_number: number;
+  readonly reason: string | null;
+  readonly detail: JsonObject;
+  readonly occurred_at: Date;
+}
+
+/** A row of `hint_request` (EXPD-020). One hint one team opened. */
+export interface HintRequestRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly expedition_session_id: string;
+  readonly team_id: string;
+  readonly participant_id: string | null;
+  readonly mission_instance_key: string;
+  readonly hint_key: string;
+  readonly opened_at: Date;
 }

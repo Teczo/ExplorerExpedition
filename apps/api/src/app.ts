@@ -12,7 +12,7 @@
  *     app.use('/auth', ...);           // 4. the feature routers
  *     app.use('/expeditions', ...);    //    EXPD-017
  *     app.use('/join', ...);           //    EXPD-018
- *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019
+ *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019, then EXPD-020
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -22,6 +22,7 @@
  */
 
 import express, { type Express, type RequestHandler } from 'express';
+import type { MissionTypeEntry } from '@explorer/engine';
 import type { OrganisationId } from '@explorer/shared-types';
 
 import { readAuthConfig, type AuthConfig } from './config/auth-config.ts';
@@ -32,6 +33,7 @@ import {
   createParticipationRouter,
 } from './participation/index.ts';
 import { createSessionRouter } from './sessions/index.ts';
+import { createPlayRouter } from './play/index.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -82,6 +84,13 @@ export interface AppOptions {
   readonly trustProxy?: boolean | number | string;
   /** Where server faults are logged. Defaults to `console.error`. */
   readonly log?: ErrorLogger;
+  /**
+   * Mission types that come as code, with a behaviour that judges work
+   * (EXPD-009). The mission type tickets (EXPD-032 to EXPD-039) are what
+   * will pass these. A type that is not here is judged from its
+   * `mission_type` row alone, which the engine sends to a teacher.
+   */
+  readonly missionTypes?: readonly MissionTypeEntry[];
 }
 
 /**
@@ -133,6 +142,17 @@ export function createApp(options: AppOptions = {}): Express {
     // everything EXPD-019 adds is either `/` or a verb under `/:sessionId`.
     app.use('/sessions', createParticipationRouter({ db, auth, authConfig }));
     app.use('/sessions', createSessionRouter({ db, auth }));
+    // EXPD-020: playing a mission inside a run. Everything it adds is under
+    // `/:sessionId/missions` or `/:sessionId/teams/:teamId/missions`, which
+    // neither router above claims.
+    app.use(
+      '/sessions',
+      createPlayRouter({
+        db,
+        auth,
+        ...(options.missionTypes === undefined ? {} : { missionTypes: options.missionTypes }),
+      }),
+    );
   }
 
   app.use(notFoundHandler());

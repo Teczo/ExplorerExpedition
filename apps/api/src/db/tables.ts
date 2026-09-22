@@ -61,6 +61,7 @@ export const TABLE_SCOPES = {
   expedition_session: 'tenant',
   expedition_version: 'tenant',
   hint: 'tenant',
+  hint_request: 'tenant',
   inventory_item: 'tenant',
   live_event: 'tenant',
   media_asset: 'tenant',
@@ -69,6 +70,7 @@ export const TABLE_SCOPES = {
   mission_instance: 'tenant',
   mission_node: 'tenant',
   mission_template: 'tenant-or-shared',
+  mission_transition: 'tenant',
   mission_type: 'tenant-or-shared',
   organisation: 'global',
   participant: 'tenant',
@@ -164,6 +166,12 @@ export function assertGlobal(table: string): GlobalTableName {
  * and they are listed here so that the refusal is a clear message from this
  * layer rather than a driver error from the one below.
  *
+ * `mission_transition` is every mission's history for every team (EXPD-020),
+ * which a mission state is replayed from, and `hint_request` is the hints a
+ * team opened. Both are held to the same rule by migration 0006, for the same
+ * reason: the line saying a mission failed, or that a hint was paid for, is
+ * the line somebody would want to take back.
+ *
  * `live_event` is written once too and is deliberately not in this list. It
  * is the realtime channel's replay buffer (EXPD-023) — a client that dropped
  * a connection catches up from it — rather than a record anything is decided
@@ -172,6 +180,8 @@ export function assertGlobal(table: string): GlobalTableName {
  */
 export const APPEND_ONLY_TABLES: readonly TableName[] = [
   'audit_log',
+  'hint_request',
+  'mission_transition',
   'progression_event',
   'score_event',
 ];
