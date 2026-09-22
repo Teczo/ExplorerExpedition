@@ -20,6 +20,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0005_session_lifecycle.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails

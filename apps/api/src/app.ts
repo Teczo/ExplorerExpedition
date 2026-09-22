@@ -12,7 +12,7 @@
  *     app.use('/auth', ...);           // 4. the feature routers
  *     app.use('/expeditions', ...);    //    EXPD-017
  *     app.use('/join', ...);           //    EXPD-018
- *     app.use('/sessions', ...);       //    EXPD-018
+ *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -31,6 +31,7 @@ import {
   createJoinRouter,
   createParticipationRouter,
 } from './participation/index.ts';
+import { createSessionRouter } from './sessions/index.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -124,10 +125,14 @@ export function createApp(options: AppOptions = {}): Express {
     app.use('/auth', createAuthRouter(auth));
     app.use('/expeditions', createExpeditionRouter({ db, auth }));
     // EXPD-018. `/join` is on its own because it is the one router with no
-    // auth in front of it; `/sessions` is shared ground that EXPD-019 will
-    // mount its own router on.
+    // auth in front of it.
     app.use('/join', createJoinRouter({ db, auth, authConfig }));
+    // `/sessions` is shared ground: EXPD-018 owns the code, the teams and the
+    // students under a run, and EXPD-019 owns the run itself. Express is happy
+    // with two routers on one path, and the two never claim the same address —
+    // everything EXPD-019 adds is either `/` or a verb under `/:sessionId`.
     app.use('/sessions', createParticipationRouter({ db, auth, authConfig }));
+    app.use('/sessions', createSessionRouter({ db, auth }));
   }
 
   app.use(notFoundHandler());

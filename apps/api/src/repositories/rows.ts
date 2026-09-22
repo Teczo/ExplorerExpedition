@@ -313,12 +313,14 @@ export interface MissionTypeRow {
 }
 
 /**
- * A row of `expedition_session` (EXPD-018).
+ * A row of `expedition_session` (EXPD-018, EXPD-019).
  *
- * One run of one expedition with one group of students. Only the columns the
- * students, the teams and the join code need are spelled out; the clock
- * columns belong to the ticket that owns the lifecycle (EXPD-019) and are
- * added here by it.
+ * One run of one expedition with one group of students. The first block is
+ * what the students, the teams and the join code need. The second is the
+ * clock, added by the ticket that owns the lifecycle, and it is the whole of
+ * what a run remembers about time: everything else — how long is left, when
+ * the run will end — is worked out from these five and the pinned revision's
+ * `rules.timing`, by `sessions/session-clock.ts`.
  */
 export interface ExpeditionSessionRow {
   readonly id: string;
@@ -330,6 +332,19 @@ export interface ExpeditionSessionRow {
   readonly join_code: string;
   readonly status: SessionStatus;
   readonly host_user_id: string | null;
+  /** When the teacher means to run it. Never enforced: nothing starts a run but a teacher. */
+  readonly scheduled_start_at: Date | null;
+  /** When play began. NULL until it has. */
+  readonly started_at: Date | null;
+  /** When the current pause began. NULL while the run is not paused. */
+  readonly paused_at: Date | null;
+  /** How long the run has spent paused, not counting a pause still going on. */
+  readonly paused_seconds_total: number;
+  /** Seconds a teacher added on the day, on top of the revision's limit. */
+  readonly extended_seconds_total: number;
+  /** When it ended, or was called off. NULL until one of the two. */
+  readonly ended_at: Date | null;
+  readonly created_by: string | null;
   readonly created_at: Date;
   readonly updated_at: Date;
 }

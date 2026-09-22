@@ -35,8 +35,10 @@
  * teams.
  *
  * `/sessions` is shared ground. EXPD-019 owns the run's own lifecycle and
- * will mount a second router on the same path; Express is happy with that,
- * and it keeps each ticket's endpoints in its own file.
+ * mounts a second router on the same path; Express is happy with that, and it
+ * keeps each ticket's endpoints in its own file. The two never claim the same
+ * address: everything here is a noun under `/:sessionId`, and everything
+ * there is either `/` or a verb under it.
  */
 
 import { Router, type Request, type RequestHandler } from 'express';

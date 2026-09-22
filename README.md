@@ -93,7 +93,9 @@ to account at once (EXPD-015), and the REST API skeleton every endpoint from
 here on is built on (EXPD-016), and the first endpoints standing on it: the
 expeditions themselves, their drafts, and the publish that freezes a revision
 (EXPD-017), and the join codes, teams and participants that fill a run of one
-with a class (EXPD-018), all described below. The rest is tracked in its
+with a class (EXPD-018), and the lifecycle of the run itself — starting it,
+pausing it, extending it and ending it, and the one clock every team in it
+plays against (EXPD-019), all described below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -1877,10 +1879,153 @@ that Portside School has a run with that id.
 3. **No seat or participant limits from the plan.** The only limits enforced
    here are the ones the expedition's own document lays down. What an
    organisation has paid for is EXPD-069.
-4. **Nothing about the run's lifecycle.** There is no endpoint that makes a
-   run, starts one, pauses one or ends one, and nothing here says which state
-   may follow which. That is EXPD-019, and it is why the tests seed a run
-   rather than creating one.
+4. **Nothing about the run's lifecycle.** There is no endpoint here that
+   makes a run, starts one, pauses one or ends one, and nothing here says
+   which state may follow which. That is EXPD-019, below, and it is why these
+   tests seed a run rather than creating one.
+
+### The run lifecycle
+
+`apps/api/src/sessions/` is the run itself. EXPD-018 gave a run its code and
+filled it with students; this is making the run, starting it, stopping the
+clock, starting it again, giving the class more time, and stopping it for
+good — and the runtime state every team in it plays against.
+
+| Endpoint                          | What it does                                  |
+| --------------------------------- | --------------------------------------------- |
+| `POST /sessions`                  | Schedule a run of a published expedition.     |
+| `GET /sessions`                   | This organisation's runs, newest first.       |
+| `GET /sessions/:id`               | One run, with its clock as of now.            |
+| `POST /sessions/:id/start`        | Begin play.                                   |
+| `POST /sessions/:id/pause`        | Stop the clock.                               |
+| `POST /sessions/:id/resume`       | Start it again.                               |
+| `POST /sessions/:id/extend`       | Give every team more time.                    |
+| `POST /sessions/:id/end`          | Stop the run for good.                        |
+
+**One table says which state may follow which.** It is
+`SESSION_TRANSITIONS` in `@explorer/shared-types`, not in the API, because
+three sides read it: the API enforces it, Director Mode (EXPD-055) greys out
+the buttons a run cannot take, and the student app (EXPD-047) is told a run
+changed state and has to know whether that means play has begun or is over.
+
+```
+        ┌────────────┐
+        │ scheduled  │──────────────┐
+        └─────┬──────┘              │
+              │ start               │ end, before play
+        ┌─────▼──────┐              │
+  ┌─────│  running   │◄──┐          │
+  │     └─────┬──────┘   │ resume   │
+  │ end       │ pause    │          │
+  │     ┌─────▼──────┐   │          │
+  │     │   paused   │───┘          │
+  │     └─────┬──────┘              │
+  │           │ end                 │
+  │     ┌─────▼──────┐        ┌─────▼──────┐
+  └────►│   ended    │        │ cancelled  │
+        └────────────┘        └────────────┘
+```
+
+A run made for a time still to come waits in `scheduled`; one made for now
+opens its `lobby` straight away. Both are joinable and both can be started,
+so the difference is what a teacher sees on a dashboard rather than what a
+student can do. Ending a run that was never started is `cancelled` rather
+than `ended`: it was called off, and a result nobody played for should not be
+filed beside the ones that were. Both are final. A class that wants to play
+again gets a new run, with a new code and a clean sheet, which is what a
+second lesson is.
+
+**Pausing stops the clock; it does not move the end.** A resume adds the
+pause it just ended to `paused_seconds_total`, and everything that counts
+time takes that total back out. A run paused for twenty minutes finishes
+twenty minutes later than it would have, and no team loses a second of play.
+Ending a paused run folds the open pause in first, so a run stopped while
+paused reports the same elapsed time as one resumed a moment before it was
+stopped.
+
+**The clock is worked out on every read, never stored.** Four columns and one
+number from the pinned document are all there is:
+
+| What                     | Where it comes from                              |
+| ------------------------ | ------------------------------------------------ |
+| `started_at`             | When play began.                                 |
+| `paused_at`              | When the pause going on now began, or NULL.      |
+| `paused_seconds_total`   | Every pause before that one, added up.           |
+| `extended_seconds_total` | Time a teacher gave the class on the day.        |
+| `rules.timing`           | The pinned revision's own limit, if it set one.  |
+
+A stored "seconds remaining" is wrong the moment it is written and a stored
+"ends at" is wrong the moment somebody pauses — and pausing is the whole
+point of the feature. So `GET /sessions/:id` answers with a `clock` that
+carries the moment it was worked out at, and a client counts down from there
+between requests. `endsAt` is given only while a run is `running`: a paused
+run's end time moves with every second it stays paused, and handing a client
+a time that slides away from it would be worse than handing it none.
+
+**Time given on the day is the run's, not the document's.** The limit a class
+plays to is the revision's `rules.timing.totalTimeLimitSeconds` plus the
+run's `extended_seconds_total`. The document is frozen when it is published,
+and a teacher giving ten more minutes because the coach was late is not
+editing what the class is playing — which is why the extension is a column
+(migration 0005) rather than a field in the document. Only a run being played
+and only a run with a limit can be extended; anything else is `409`.
+
+**Nothing ends a run whose time is up.** The clock reports `expired` and the
+run goes on being `running` until somebody ends it. There is no timer in the
+API, and a lesson that ended itself while every phone was in a tunnel would
+be the worse behaviour. Turning `expired` into an ending is Director Mode's
+(EXPD-055) or a live trigger's (EXPD-057).
+
+**Reading and making a run are `session:read` and `session:write`; the five
+that change a run under way are `session:control`.** That is the split
+EXPD-004 already wrote into the permission list, and this is the first thing
+to use it. A facilitator holds all three, because running somebody else's
+expedition with a class is the whole of that role. A student's phone is
+refused every endpoint here — `student-device` holds `session:read`, so
+without `requireStaff()` a phone could list every run in the school.
+
+Another organisation's run answers `404` rather than `403`, for the reason
+EXPD-017 gives, and a run is only ever made against an expedition that has a
+published revision: you cannot put a draft in front of a class.
+
+`/sessions` is shared ground. EXPD-018's router and this one are both mounted
+on it, and the two never claim the same address — everything here is either
+`/` or a verb under `/:sessionId`, and everything there is a noun under it.
+
+| File                                 | What it holds                                    |
+| ------------------------------------ | ------------------------------------------------ |
+| `shared-types/participation/lifecycle.ts` | The transition table, read by all three sides. |
+| `sessions/timing-rules.ts`           | The clock the pinned revision lays down.         |
+| `sessions/session-clock.ts`          | How long a run has been going, and how long is left. |
+| `sessions/session-repository.ts`     | The run's table, through the tenant repository.  |
+| `sessions/session-service.ts`        | The rules, and the transactions they run in.     |
+| `sessions/views.ts`                  | What a client reads.                             |
+| `sessions/routes.ts`                 | The endpoints, and the stack in front of them.   |
+| `test/sessions/`                     | 92 tests, over real sockets and real tokens.     |
+
+**What is deliberately not here.**
+
+1. **No entry in the audit log for extending a run.** The vocabulary EXPD-006
+   fixed has `session.scheduled`, `started`, `paused`, `resumed`, `ended` and
+   `overridden`, and all six are written. There is no action for time being
+   added, so an extension is recorded as `session.overridden` — which is what
+   it is, a teacher changing a number the author wrote. Widening the
+   vocabulary is EXPD-006's to do rather than this ticket's, the same line
+   EXPD-018 drew over reissuing a code.
+2. **Nothing about a team's own state.** Starting a run does not move a team
+   from `forming` to `playing`, and ending one does not mark anybody
+   `finished`. A team's lifecycle is EXPD-041, and a run's lifecycle quietly
+   rewriting team rows would be that ticket built here by the back door.
+3. **Nothing tells the phones.** A run that has been paused is a thing thirty
+   students need to hear about within a second, and pushing it to them is the
+   realtime channel (EXPD-023) and the student app's handling of it
+   (EXPD-047).
+4. **No job runs on a schedule.** `scheduledStartAt` is a note a teacher
+   writes; nothing opens a lobby or starts a run when the time arrives,
+   because a lesson starts when a teacher says so and not when a calendar
+   does.
+5. **No dashboard.** The buttons that press these endpoints are EXPD-055 and
+   EXPD-058.
 
 ### Known gaps in `apps/student-mobile`
 

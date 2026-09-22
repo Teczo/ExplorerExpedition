@@ -8,8 +8,8 @@
  * database.
  *
  * They are only the words. Which change may follow which is somebody else's:
- * a run's lifecycle is EXPD-019, a team's is EXPD-041, and migration 0001
- * says so where it declares the types.
+ * a run's lifecycle is `./lifecycle.ts` (EXPD-019), a team's is EXPD-041, and
+ * migration 0001 says so where it declares the types.
  */
 
 /** The states one run of an expedition passes through. */
