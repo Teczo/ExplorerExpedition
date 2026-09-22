@@ -90,6 +90,24 @@ export interface ApiErrorBody {
   readonly error: string;
   readonly message: string;
   readonly details?: readonly FieldIssue[];
+  readonly refusal?: EngineRefusal;
+}
+
+/**
+ * Why the Mission Engine said no (EXPD-020).
+ *
+ * Only a `conflict` carries one, and only when the engine made the call. The
+ * engine's refusals are answers rather than faults — the wrong end of the
+ * park, a second tap on submit, a hint already paid for — and a phone has to
+ * tell them apart to say anything useful, so the engine's own code goes to
+ * the caller with whatever else it said. `message` stays English for a
+ * person; `refusal.code` is the stable thing to branch on.
+ */
+export interface EngineRefusal {
+  /** The engine's refusal code, such as `wrong-place` or `no-attempts-left`. */
+  readonly code: string;
+  /** The rest of what the engine said, as it said it. */
+  readonly [field: string]: unknown;
 }
 
 /** Thrown by a handler, or by anything in front of one, to refuse a request. */
@@ -114,6 +132,9 @@ export class ApiError extends Error {
    */
   readonly detail: string | undefined;
 
+  /** The engine's refusal, when the engine is who refused. */
+  readonly refusal: EngineRefusal | undefined;
+
   constructor(
     failure: ApiFailure,
     options: {
@@ -121,6 +142,7 @@ export class ApiError extends Error {
       readonly message?: string;
       readonly details?: readonly FieldIssue[];
       readonly detail?: string;
+      readonly refusal?: EngineRefusal;
       /** The error this one was raised from, kept for the log. */
       readonly cause?: unknown;
     } = {},
@@ -133,6 +155,7 @@ export class ApiError extends Error {
     this.status = STATUS_BY_API_FAILURE[failure];
     this.details = options.details ?? [];
     this.detail = options.detail;
+    this.refusal = options.refusal;
   }
 
   /** The body to send back. */
@@ -141,6 +164,7 @@ export class ApiError extends Error {
       error: this.failure,
       message: this.message,
       ...(this.details.length === 0 ? {} : { details: this.details }),
+      ...(this.refusal === undefined ? {} : { refusal: this.refusal }),
     };
   }
 }

@@ -95,7 +95,9 @@ expeditions themselves, their drafts, and the publish that freezes a revision
 (EXPD-017), and the join codes, teams and participants that fill a run of one
 with a class (EXPD-018), and the lifecycle of the run itself — starting it,
 pausing it, extending it and ending it, and the one clock every team in it
-plays against (EXPD-019), all described below. The rest is tracked in its
+plays against (EXPD-019), and the endpoints a team plays a mission through —
+starting a try, handing work in, opening a hint, and a teacher marking
+waiting work complete (EXPD-020), all described below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -2026,6 +2028,121 @@ on it, and the two never claim the same address — everything here is either
    does.
 5. **No dashboard.** The buttons that press these endpoints are EXPD-055 and
    EXPD-058.
+
+### Playing a mission
+
+`apps/api/src/play/` is the first thing that calls the engine for real. A
+team starts a try, hands work in and opens a hint; a teacher marks waiting
+work complete or sends it back. **The engine decides every outcome** — the
+state machine (EXPD-010) whether a try may start, the completion interface
+(EXPD-011) what the work was, the scoring engine (EXPD-012) what it was
+worth, and progression (EXPD-013) what it opened. The API reads the rows
+those need, asks, and writes down the answer.
+
+| Endpoint                                                  | Who          | What it does                          |
+| --------------------------------------------------------- | ------------ | ------------------------------------- |
+| `POST /sessions/:id/missions/:missionId/attempts`         | A phone      | Start a try.                          |
+| `POST /sessions/:id/missions/:missionId/submissions`      | A phone      | Hand work in, and get the verdict.    |
+| `POST /sessions/:id/missions/:missionId/hints`            | A phone      | Open the next hint, or a named one.   |
+| `POST /sessions/:id/teams/:teamId/missions/:missionId/complete` | A teacher | Approve or reject waiting work.   |
+
+`:missionId` is the mission's id in the definition document, which is what
+the student app draws its board from. A phone never names a team: it plays
+for the team its student is on, read from its token and the team sheet, so
+it has no way to play for somebody else's.
+
+**Every answer has the same shape.** The mission's new state and the
+triggers the rules would now accept, the try, the submission, the verdict
+exactly as the engine gave it, the score events the change wrote and the
+total after it, and every door it opened.
+
+```bash
+$ curl -X POST .../sessions/$RUN/missions/gate/submissions \
+       -d '{"payload": {"code": "OTTER"}}'
+{"mission": {"id": "gate", "state": "complete", "attemptsUsed": 1, "allowedTriggers": []},
+ "verdict": {"outcome": "correct", "method": "behaviour", "trigger": "accept", "review": "none"},
+ "score": {"total": 15, "events": [{"reason": "mission-complete", "points": 10, ...},
+                                   {"reason": "first-to-complete-bonus", "points": 5, ...}]},
+ "progression": {"events": [{"reason": "mission-unlocked", "missionInstanceId": "tower", ...}], ...},
+ ...}
+```
+
+**A refusal is `409`, with the engine's own code.** The wrong end of the
+park, a second tap on start, work in the wrong shape, a hint already paid
+for — each is the engine answering rather than failing, and a phone has to
+tell them apart to say anything useful. So a `409` from here carries
+`refusal`, with the engine's `code` and whatever else it said, beside the
+usual `error` and `message`. That field is the one addition this ticket
+makes to the error contract (EXPD-016). A refusal writes nothing at all:
+work that was refused was not judged, and is not a try spent.
+
+**A mission state is never stored.** Every line of every mission's history
+is kept, append-only, in `mission_transition` (migration 0006), and the state
+is replayed from it by `replayMissionTransitions` on every request. A history
+the rules could not have produced is caught on the next read and the request
+fails, rather than playing on from a record somebody changed.
+`mission_attempt` and `submission` are written too, because the rest of the
+platform points at them, and they say what the engine said.
+
+**Every point is a sealed line.** Score and progression changes go into the
+team's stream (EXPD-014) through `TeamStream`, in the same transaction as the
+change, and `team.total_score` is written beside them. The three running
+counts the stream does not carry — the streak, the longest streak and the
+wrong answers — are on `team` too (0006), as EXPD-012 said they would be.
+
+**The team is locked first.** Every request reads the team row `FOR UPDATE`
+before anything else about the team, so two phones pressing submit at the
+same moment are played one after the other.
+
+**Three things are the API's, because the engine holds no clock and knows
+no other team.**
+
+1. **The run has to be `running`** for a phone to play. A teacher may decide
+   while it is running, paused or over: photos are often marked after the
+   bell.
+2. **The clocks.** A mission's `cooldownSeconds` is checked before a new try.
+   Work handed in after the run's time is up is late, and the expedition's
+   `latePolicy` says whether it is refused, accepted, or accepted with the
+   `late-penalty` rule told how late.
+3. **Other teams.** Whether this team was first to finish a mission is read
+   from the other teams' tries and handed to the scoring engine.
+
+**Mission types.** A registry is built per request (EXPD-009). A type that
+comes as code, with a behaviour that judges, is passed to
+`createApp({ missionTypes })`; none are yet, because the mission types are
+EXPD-032 to EXPD-039. Otherwise a type is its `mission_type` row, which the
+completion interface sends to a teacher, and a type with neither is the
+engine's `unknown-mission-type`.
+
+**Who may do what.** The three phone routes need `attempt:write`, which only
+`student-device` holds. The teacher's route needs `submission:review`, which
+creators and facilitators hold, and writes `submission.accepted` or
+`submission.rejected` to the audit log. Another organisation's run is `404`,
+and so is another run's, for a phone.
+
+| File                         | What it holds                                           |
+| ---------------------------- | ------------------------------------------------------- |
+| `play/mission-log.ts`        | A mission's history, stored and replayed.               |
+| `play/mission-types.ts`      | The registry one submission is judged against.          |
+| `play/play-repository.ts`    | The tables, through the tenant repository.              |
+| `play/play-service.ts`       | The four actions, and the transactions they run in.     |
+| `play/views.ts`              | What a client reads back.                               |
+| `play/routes.ts`             | The endpoints, and the stack in front of them.          |
+| `db/migrations/0006_mission_play.sql` | The history, the hints opened, the running counts. |
+| `test/play/`                 | 59 tests, over real sockets and real tokens.            |
+
+**What is deliberately not here.**
+
+1. **No hint tokens.** Opening a hint charges points (`hint-penalty`) and
+   records the opening; counting and spending tokens is EXPD-046.
+2. **No expiry.** Nothing applies `expire` when a mission's own time limit
+   runs out, because nothing in the API runs on a timer. `deadline_at` is on
+   the try for whoever does.
+3. **No reads.** Nothing here lists a team's tries or the review queue. The
+   mission board is EXPD-042 and the queue is EXPD-056.
+4. **No media.** A photo is handed in by id; the upload is EXPD-021.
+5. **Nothing tells the phones.** A verdict reaching the rest of the team is
+   the realtime channel (EXPD-023).
 
 ### Known gaps in `apps/student-mobile`
 

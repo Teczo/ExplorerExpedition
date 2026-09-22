@@ -97,10 +97,11 @@ describe('the registry against the migrations', () => {
   const schema = readSchemaTables();
 
   test('the migrations parse into the number of tables the schema documents', () => {
-    // 25 in 0001, three more in 0002, and `progression_event` in 0004. A
-    // change to any of those numbers is a schema change, and it should be
-    // made deliberately rather than noticed later.
-    assert.equal(schema.length, 29);
+    // 25 in 0001, three more in 0002, `progression_event` in 0004, and
+    // `mission_transition` and `hint_request` in 0006. A change to any of
+    // those numbers is a schema change, and it should be made deliberately
+    // rather than noticed later.
+    assert.equal(schema.length, 31);
   });
 
   test('every table in the database is in TABLE_SCOPES, and the other way round', () => {
