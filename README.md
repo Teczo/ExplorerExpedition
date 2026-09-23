@@ -99,8 +99,9 @@ plays against (EXPD-019), and the endpoints a team plays a mission through —
 starting a try, handing work in, opening a hint, and a teacher marking
 waiting work complete (EXPD-020), and the signed URLs a phone uploads a
 photograph with and a teacher reads it back with (EXPD-021), and the
-leaderboards of a run and of an expedition (EXPD-022), all described
-below. The rest is tracked in its
+leaderboards of a run and of an expedition (EXPD-022), and the realtime
+channel that tells a run's phones and its teacher what just changed
+(EXPD-023), all described below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -2303,6 +2304,120 @@ says how many teams there are in all.
    Mode's is EXPD-055.
 3. **No history.** A board is today's figures. Results and analytics after the
    afternoon are EXPD-059.
+
+### The realtime channel
+
+`apps/api/src/realtime/` tells the people in a run what just changed: a
+teacher pressed *pause*, a team's answer was right, a door opened, the board
+moved, a student was moved to another team. Everything it says was already
+written by another endpoint. The channel is never the record, and nothing
+travels up it: a phone still does everything through REST.
+
+| Endpoint                            | Who                         | What it does                              |
+| ----------------------------------- | --------------------------- | ----------------------------------------- |
+| `GET /sessions/:id/events`          | Staff, and the run's phones | Opens the run's stream.                   |
+| `POST /sessions/:id/announcements`  | Staff, `session:control`    | Says something to the run, or to one team.|
+
+```bash
+$ curl -N -H "Authorization: Bearer $TOKEN" .../sessions/$RUN/events
+retry: 3000
+
+id: 0b6e…
+event: channel.ready
+data: {"type":"channel.ready","sessionStatus":"running","teamId":"…","heartbeatSeconds":25,"id":"0b6e…","sessionId":"…","sentAt":"…"}
+
+: heartbeat
+
+id: 9f21…
+event: session.status
+data: {"type":"session.status","status":"paused","nextStatuses":["running","ended"],"clock":{…},…}
+```
+
+**Server-Sent Events, not WebSockets.** Everything on the channel goes one
+way. SSE is plain HTTP, so the same token, permission and organisation checks
+stand in front of it as in front of every other route, and it needs no
+dependency. A WebSocket server does.
+
+**What it says, and who hears it.** The API decides the audience, never the
+client. The list is `REALTIME_EVENT_TYPES` in `@explorer/shared-types`,
+because the student app (EXPD-047) and Director Mode (EXPD-055) read it too.
+
+| Event                       | Sent when                                        | Staff | The team's phones | Every phone |
+| --------------------------- | ------------------------------------------------ | ----- | ----------------- | ----------- |
+| `channel.ready`             | The stream opens, and after a gap.               | yes   | yes               | yes         |
+| `session.status`            | Start, pause, resume, extend, end.               | yes   | yes               | yes         |
+| `leaderboard.changed`       | A score moved, or a team finished.               | yes   | yes               | yes         |
+| `announcement`              | A teacher said something.                        | yes   | yes               | if sent to all |
+| `team.progress`             | A try started, work was judged, a hint opened.   | yes   | yes               | no          |
+| `mission.unlocked`          | That change opened or revealed missions.         | yes   | yes               | no          |
+| `team.roster-changed`       | A team was made; a student joined, moved or left.| yes   | no                | no          |
+| `participant.team-changed`  | A student was put on a team, or taken off one.   | yes   | that phone        | no          |
+| `participant.removed`       | A student was taken out of the run.              | yes   | that phone        | no          |
+
+`leaderboard.changed` carries no figures. Who may see a board, and when, is
+different for a teacher and for a phone (EXPD-022), so the client reads
+`GET /sessions/:id/leaderboard` again and those rules apply there.
+
+**A phone moves with its student.** A stream hears its team's events from the
+team the student is on now. Moving the student sends
+`participant.team-changed`, and the stream hears the new team from the next
+event on. Taking the student out of the run sends `participant.removed` and
+closes the stream; opening it again is `404`.
+
+**Nothing is replayed.** The channel keeps no history. `channel.ready` means
+"what you drew may be stale": a client reads what it needs again, on every
+connect and every reconnect. When the API lost Redis for a moment and may have
+missed something, staff streams are sent `channel.ready` again. A phone's
+stream is closed instead, so that it reconnects and its team is read again.
+
+**A stream ends when its token does.** The token is checked when the stream
+opens, and the stream is closed at the token's `exp`. The client opens a new
+one with a fresh token. So a revoked sign-in stops hearing a run no later than
+its last token runs out.
+
+**Redis, when there is more than one instance.** A teacher's request and a
+phone's stream can be on different App Service instances. Each instance
+subscribes to one Redis channel per run it has streams for,
+`expd:realtime:<organisation>:<run>`, and publishes every event there.
+`REDIS_URL` is the setting EXPD-007 already writes. Without it, the API uses
+an in-process broker, which is right for one instance and for tests.
+
+The Redis client is hand-written over `node:tls`: a client library is a
+dependency. It speaks the five commands the channel needs, reconnects with a
+growing delay, and subscribes again. Losing Redis loses events, never records:
+events are published after the change is committed, a failed publish is logged,
+and the request that caused it still succeeds.
+
+**Announcements** are one sentence for a phone screen, at most 500
+characters, to the run or to one of its teams. They are refused for a run that
+is over (`409`). They change no record, so they write no audit entry.
+
+| File                              | What it holds                                        |
+| --------------------------------- | ---------------------------------------------------- |
+| `shared-types/realtime/events.ts` | The events, read by all three sides.                 |
+| `realtime/broker.ts`              | Carrying a message between instances; the in-process broker. |
+| `realtime/resp.ts`                | The Redis wire protocol.                             |
+| `realtime/redis-broker.ts`        | Redis pub/sub, with reconnection.                    |
+| `realtime/hub.ts`                 | Publishing, and delivering to the right streams.     |
+| `realtime/notices.ts`             | What each change says, and to whom.                  |
+| `realtime/stream.ts`              | One stream, as Server-Sent Events.                   |
+| `realtime/routes.ts`              | The endpoints, and the checks in front of them.      |
+| `config/realtime-config.ts`       | `REDIS_URL`.                                         |
+| `test/realtime/`                  | 53 tests, over real sockets and a fake Redis.        |
+
+**What is deliberately not here.**
+
+1. **No WebSockets.** Nothing on the channel goes up it.
+2. **No `?token=` in the URL.** A browser's `EventSource` cannot set a header,
+   so a web client reads the stream with `fetch`. A token in a URL ends up in
+   logs.
+3. **No history, and no `Last-Event-ID`.** A client reads again after
+   `channel.ready`.
+4. **No handling on the phone or in Director Mode.** That is EXPD-047 and
+   EXPD-055. Triggers a teacher sets up to fire on their own are EXPD-057.
+5. **No proof against Azure Cache for Redis.** The tests use a fake Redis over
+   a real socket. Only the real cache can prove TLS and `AUTH` work there. Try
+   one stream on `dev` before relying on it.
 
 ### Known gaps in `apps/student-mobile`
 

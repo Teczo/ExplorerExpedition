@@ -76,6 +76,8 @@ import {
   id as uuid,
 } from '../http/validation.ts';
 import { JoinCodeDirectory } from '../participation/join-code-directory.ts';
+import type { RealtimeHub } from '../realtime/hub.ts';
+import { sessionChangedNotices, tellRun } from '../realtime/notices.ts';
 import {
   MAX_EXTENSION_SECONDS,
   MAX_SESSION_NAME,
@@ -83,6 +85,7 @@ import {
   sessionPage,
   SessionService,
 } from './session-service.ts';
+import type { SessionView } from './views.ts';
 
 /** The body `POST /sessions` reads. */
 const CreateBody = object({
@@ -123,12 +126,24 @@ const SessionParams = object({ sessionId: uuid() });
 export interface SessionRouterOptions {
   readonly db: Queryable;
   readonly auth: AuthService;
+  /** Where the phones and Director Mode hear that a run changed (EXPD-023). */
+  readonly realtime?: RealtimeHub;
 }
 
 /** Builds the run lifecycle routes. */
 export function createSessionRouter(options: SessionRouterOptions): Router {
   const router = Router();
   const { db, auth } = options;
+
+  /** Tells everybody watching the run where it stands now, once it is committed. */
+  const tell = (request: Request, session: SessionView): SessionView => {
+    tellRun(
+      options.realtime,
+      { organisationId: principalOf(request).organisationId, sessionId: session.id },
+      sessionChangedNotices(session),
+    );
+    return session;
+  };
 
   /** The stack every route here stands on, with the permission it needs. */
   const stack = (
@@ -186,7 +201,7 @@ export function createSessionRouter(options: SessionRouterOptions): Router {
     validateParams(SessionParams),
     async (request, response) => {
       const { sessionId } = paramsOf(request, SessionParams);
-      response.status(200).json(await serviceFor(db, request).start(sessionId));
+      response.status(200).json(tell(request, await serviceFor(db, request).start(sessionId)));
     },
   );
 
@@ -196,7 +211,7 @@ export function createSessionRouter(options: SessionRouterOptions): Router {
     validateParams(SessionParams),
     async (request, response) => {
       const { sessionId } = paramsOf(request, SessionParams);
-      response.status(200).json(await serviceFor(db, request).pause(sessionId));
+      response.status(200).json(tell(request, await serviceFor(db, request).pause(sessionId)));
     },
   );
 
@@ -206,7 +221,7 @@ export function createSessionRouter(options: SessionRouterOptions): Router {
     validateParams(SessionParams),
     async (request, response) => {
       const { sessionId } = paramsOf(request, SessionParams);
-      response.status(200).json(await serviceFor(db, request).resume(sessionId));
+      response.status(200).json(tell(request, await serviceFor(db, request).resume(sessionId)));
     },
   );
 
@@ -219,10 +234,13 @@ export function createSessionRouter(options: SessionRouterOptions): Router {
       const { sessionId } = paramsOf(request, SessionParams);
       const body = bodyOf(request, ExtendBody);
       response.status(200).json(
-        await serviceFor(db, request).extend(sessionId, {
-          seconds: body.seconds,
-          ...(body.reason === undefined ? {} : { reason: body.reason }),
-        }),
+        tell(
+          request,
+          await serviceFor(db, request).extend(sessionId, {
+            seconds: body.seconds,
+            ...(body.reason === undefined ? {} : { reason: body.reason }),
+          }),
+        ),
       );
     },
   );
@@ -233,7 +251,7 @@ export function createSessionRouter(options: SessionRouterOptions): Router {
     validateParams(SessionParams),
     async (request, response) => {
       const { sessionId } = paramsOf(request, SessionParams);
-      response.status(200).json(await serviceFor(db, request).end(sessionId));
+      response.status(200).json(tell(request, await serviceFor(db, request).end(sessionId)));
     },
   );
 
