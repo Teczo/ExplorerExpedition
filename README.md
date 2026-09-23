@@ -97,7 +97,9 @@ with a class (EXPD-018), and the lifecycle of the run itself — starting it,
 pausing it, extending it and ending it, and the one clock every team in it
 plays against (EXPD-019), and the endpoints a team plays a mission through —
 starting a try, handing work in, opening a hint, and a teacher marking
-waiting work complete (EXPD-020), all described below. The rest is tracked in its
+waiting work complete (EXPD-020), and the signed URLs a phone uploads a
+photograph with and a teacher reads it back with (EXPD-021), all described
+below. The rest is tracked in its
 own tickets:
 
 - Studio shell — EXPD-024
@@ -2143,6 +2145,84 @@ and so is another run's, for a phone.
 4. **No media.** A photo is handed in by id; the upload is EXPD-021.
 5. **Nothing tells the phones.** A verdict reaching the rest of the team is
    the realtime channel (EXPD-023).
+
+### Signed media URLs
+
+`apps/api/src/media/` lets a phone put a file straight into Blob Storage,
+and a teacher read it back, without the bytes ever passing through the API.
+The API signs a URL; the client talks to storage with it.
+
+| Endpoint                        | Needs         | What it answers with                        |
+| ------------------------------- | ------------- | ------------------------------------------- |
+| `POST /media/uploads`           | `media:write` | A `pending` row, and a URL that creates it. |
+| `GET /media/:mediaId/download`  | `media:read`  | A URL that reads it.                        |
+
+```bash
+$ curl -X POST .../media/uploads -d '{"kind": "image", "contentType": "image/jpeg"}'
+{"media": {"id": "5c1e…", "kind": "image", "status": "pending", "contentType": "image/jpeg"},
+ "upload": {"method": "PUT", "url": "https://stexpd….blob.core.windows.net/media/<org>/5c1e…?sv=…&sp=c&sig=…",
+            "headers": {"x-ms-blob-type": "BlockBlob", "content-type": "image/jpeg"},
+            "expiresAt": "2026-09-23T10:15:00.000Z"}}
+
+$ curl -X PUT "$URL" -H 'x-ms-blob-type: BlockBlob' -H 'content-type: image/jpeg' --data-binary @photo.jpg
+```
+
+The phone then hands the photograph in by `media.id` (EXPD-020).
+
+**What a URL allows.** One blob, over HTTPS, for fifteen minutes by
+default. An upload URL is create-only (`sp=c`): it writes a blob that does
+not exist yet and cannot replace one that does, so evidence a team handed in
+cannot be swapped afterwards by whoever still holds the URL. A download URL
+is read-only (`sp=r`). Both answers are sent `Cache-Control: no-store`,
+because a URL is a credential for as long as it works.
+
+**Where a file goes.** `media/<organisation id>/<media id>`. The id is
+random and minted by the API, so a path cannot be guessed and two uploads
+never meet. The row holds the container and the path, never a URL, as 0001
+asked.
+
+**Who may do what.** A phone and a staff account may both upload, and the
+row names the student or the account — never both. Only staff may download:
+a phone holds no `media:read`, because the student app is given the URLs it
+needs by the screens that show them. Another organisation's file, and a
+deleted one, is `404`; one whose upload `failed` is `409`.
+
+**How it is signed.** With a *user delegation key*, because EXPD-007 turned
+the account keys off. The web app's managed identity asks App Service for a
+token, and Blob Storage for a key with it; the key is kept in memory for a
+day and shared by every URL signed in that time. It is all `node:crypto` and
+`fetch` — the Azure SDK is a dependency and nobody has added it — and the
+format is pinned to service version `2022-11-02`.
+
+**Settings.** EXPD-007 already sets `AZURE_STORAGE_ACCOUNT`,
+`AZURE_STORAGE_BLOB_ENDPOINT` and `AZURE_STORAGE_MEDIA_CONTAINER`, and App
+Service sets `IDENTITY_ENDPOINT` and `IDENTITY_HEADER` itself.
+`MEDIA_UPLOAD_URL_SECONDS` and `MEDIA_DOWNLOAD_URL_SECONDS` are optional,
+default to 900, and may be at most 3600. With no storage account set, both
+routes answer `503` and the rest of the API runs as before. An account with
+no identity to sign for it is refused when the app is built, with an error
+that says so.
+
+| File                          | What it holds                                          |
+| ----------------------------- | ------------------------------------------------------ |
+| `media/blob-sas.ts`           | Signing one blob's URL.                                |
+| `media/delegation-key.ts`     | The token and the key, and how long each is kept.      |
+| `media/media-storage.ts`      | The upload URL and the download URL.                   |
+| `media/media-service.ts`      | The row an upload writes, and the checks on a download.|
+| `media/routes.ts`             | The endpoints, and the stack in front of them.         |
+| `config/storage-config.ts`    | The settings.                                          |
+| `test/media/`                 | 41 tests. Nothing in them reaches Azure.               |
+
+**What is deliberately not here.**
+
+1. **Nothing marks a file `ready`.** A row is `pending` from the moment the
+   URL is signed, and stays so. Checking the blob arrived, and recording its
+   real size, is not in this ticket's scope. A download is signed for a
+   `pending` file too; if nothing was uploaded, Blob Storage answers 404.
+2. **No size limit.** A signed URL cannot cap how many bytes are PUT to it.
+3. **No proof against Azure.** The tests prove the signed string matches
+   Azure's documented list field by field; only a real storage account can
+   prove Azure agrees. Try one upload on `dev` before relying on it.
 
 ### Known gaps in `apps/student-mobile`
 

@@ -13,6 +13,7 @@
  *     app.use('/expeditions', ...);    //    EXPD-017
  *     app.use('/join', ...);           //    EXPD-018
  *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019, then EXPD-020
+ *     app.use('/media', ...);          //    EXPD-021
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -34,6 +35,8 @@ import {
 } from './participation/index.ts';
 import { createSessionRouter } from './sessions/index.ts';
 import { createPlayRouter } from './play/index.ts';
+import { createMediaRouter, mediaStorageFrom, type MediaStorage } from './media/index.ts';
+import { readStorageConfig } from './config/storage-config.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -91,6 +94,15 @@ export interface AppOptions {
    * `mission_type` row alone, which the engine sends to a teacher.
    */
   readonly missionTypes?: readonly MissionTypeEntry[];
+  /**
+   * Where media is signed for (EXPD-021).
+   *
+   * Read from the environment when absent (`config/storage-config.ts`). When
+   * the environment names no storage account either, the media routes are
+   * still mounted and answer 503, so a client is told storage is missing
+   * rather than that the address does not exist.
+   */
+  readonly mediaStorage?: MediaStorage;
 }
 
 /**
@@ -153,6 +165,11 @@ export function createApp(options: AppOptions = {}): Express {
         ...(options.missionTypes === undefined ? {} : { missionTypes: options.missionTypes }),
       }),
     );
+    // EXPD-021: signed URLs, so a phone uploads straight to Blob Storage.
+    app.use(
+      '/media',
+      createMediaRouter({ db, auth, storage: options.mediaStorage ?? mediaStorageFromEnvironment() }),
+    );
   }
 
   app.use(notFoundHandler());
@@ -172,6 +189,12 @@ export function createApp(options: AppOptions = {}): Express {
  */
 function jsonBody(): RequestHandler {
   return express.json({ limit: MAX_JSON_BODY });
+}
+
+/** Media storage from the environment, or none when it names no account. */
+function mediaStorageFromEnvironment(): MediaStorage | undefined {
+  const config = readStorageConfig();
+  return config === undefined ? undefined : mediaStorageFrom(config);
 }
 
 /**
