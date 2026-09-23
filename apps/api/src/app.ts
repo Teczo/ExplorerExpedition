@@ -14,6 +14,7 @@
  *     app.use('/join', ...);           //    EXPD-018
  *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019, then EXPD-020
  *     app.use('/media', ...);          //    EXPD-021
+ *     app.use('/sessions' and '/expeditions', ...) // EXPD-022, the leaderboards
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -36,6 +37,10 @@ import {
 import { createSessionRouter } from './sessions/index.ts';
 import { createPlayRouter } from './play/index.ts';
 import { createMediaRouter, mediaStorageFrom, type MediaStorage } from './media/index.ts';
+import {
+  createExpeditionLeaderboardRouter,
+  createSessionLeaderboardRouter,
+} from './leaderboard/index.ts';
 import { readStorageConfig } from './config/storage-config.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
@@ -165,6 +170,10 @@ export function createApp(options: AppOptions = {}): Express {
         ...(options.missionTypes === undefined ? {} : { missionTypes: options.missionTypes }),
       }),
     );
+    // EXPD-022: `/:sessionId/leaderboard` and `/:expeditionId/leaderboard`.
+    // `leaderboard` is a noun no router above claims under either path.
+    app.use('/sessions', createSessionLeaderboardRouter({ db, auth }));
+    app.use('/expeditions', createExpeditionLeaderboardRouter({ db, auth }));
     // EXPD-021: signed URLs, so a phone uploads straight to Blob Storage.
     app.use(
       '/media',
