@@ -125,3 +125,11 @@ export * from './audit/index.ts';
  * the rest.
  */
 export * from './participation/index.ts';
+
+/**
+ * The realtime channel (EXPD-023).
+ *
+ * The events a run's channel carries, and who hears each one. Re-exported for
+ * the same reason as the rest.
+ */
+export * from './realtime/index.ts';

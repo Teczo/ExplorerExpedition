@@ -67,6 +67,14 @@ import {
   validateParams,
   id as uuid,
 } from '../http/validation.ts';
+import type { RealtimeHub, RunTarget } from '../realtime/hub.ts';
+import {
+  participantJoinedNotices,
+  participantRemovedNotices,
+  participantTeamChangedNotices,
+  teamCreatedNotices,
+  tellRun,
+} from '../realtime/notices.ts';
 import { DeviceRepository } from '../repositories/device-repository.ts';
 import { JoinCodeDirectory } from './join-code-directory.ts';
 import {
@@ -126,6 +134,8 @@ export interface ParticipationRouterOptions {
   readonly auth: AuthService;
   /** Read for one number: how long a device token lives. */
   readonly authConfig: AuthConfig;
+  /** Where Director Mode and the student's phone hear the team sheet changed (EXPD-023). */
+  readonly realtime?: RealtimeHub;
 }
 
 /**
@@ -141,6 +151,11 @@ export function createJoinRouter(options: ParticipationRouterOptions): Router {
   router.post('/', validateBody(JoinBody), async (request, response) => {
     const body = bodyOf(request, JoinBody);
     const joined = await joinServiceFor(options).join(body);
+    tellRun(
+      options.realtime,
+      { organisationId: joined.organisationId, sessionId: joined.session.id },
+      participantJoinedNotices(joined.participant.id, joined.team?.id ?? null),
+    );
     response.status(201).json(joined);
   });
 
@@ -206,6 +221,7 @@ export function createParticipationRouter(
       const { sessionId } = paramsOf(request, SessionParams);
       const body = bodyOf(request, CreateTeamBody);
       const team = await serviceFor(options, request).createTeam(sessionId, body);
+      tellRun(options.realtime, runOf(request, sessionId), teamCreatedNotices(team.id));
 
       response.setHeader('Location', `/sessions/${sessionId}/teams/${team.id}`);
       response.status(201).json(team);
@@ -232,11 +248,17 @@ export function createParticipationRouter(
     async (request, response) => {
       const { sessionId, participantId } = paramsOf(request, ParticipantParams);
       const body = bodyOf(request, AssignBody);
-      response
-        .status(200)
-        .json(
-          await serviceFor(options, request).assignToTeam(sessionId, participantId, body),
-        );
+      const participant = await serviceFor(options, request).assignToTeam(
+        sessionId,
+        participantId,
+        body,
+      );
+      tellRun(
+        options.realtime,
+        runOf(request, sessionId),
+        participantTeamChangedNotices(participant.id, participant.teamId),
+      );
+      response.status(200).json(participant);
     },
   );
 
@@ -246,9 +268,13 @@ export function createParticipationRouter(
     validateParams(ParticipantParams),
     async (request, response) => {
       const { sessionId, participantId } = paramsOf(request, ParticipantParams);
-      response
-        .status(200)
-        .json(await serviceFor(options, request).leaveTeam(sessionId, participantId));
+      const participant = await serviceFor(options, request).leaveTeam(sessionId, participantId);
+      tellRun(
+        options.realtime,
+        runOf(request, sessionId),
+        participantTeamChangedNotices(participant.id, participant.teamId),
+      );
+      response.status(200).json(participant);
     },
   );
 
@@ -258,15 +284,25 @@ export function createParticipationRouter(
     validateParams(ParticipantParams),
     async (request, response) => {
       const { sessionId, participantId } = paramsOf(request, ParticipantParams);
-      response
-        .status(200)
-        .json(
-          await serviceFor(options, request).removeParticipant(sessionId, participantId),
-        );
+      const participant = await serviceFor(options, request).removeParticipant(
+        sessionId,
+        participantId,
+      );
+      tellRun(
+        options.realtime,
+        runOf(request, sessionId),
+        participantRemovedNotices(participant.id),
+      );
+      response.status(200).json(participant);
     },
   );
 
   return router;
+}
+
+/** The run a staff request is about, as the realtime channel names it. */
+function runOf(request: Request, sessionId: string): RunTarget {
+  return { organisationId: principalOf(request).organisationId, sessionId };
 }
 
 /**

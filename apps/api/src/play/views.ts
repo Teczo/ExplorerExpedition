@@ -93,6 +93,11 @@ export interface ProgressionView {
 
 /** The answer every endpoint here gives. */
 export interface PlayView {
+  /**
+   * The team the change was for. A phone never names it, so this is how the
+   * realtime channel (EXPD-023) knows whose phones to tell.
+   */
+  readonly teamId: string;
   readonly mission: MissionView;
   /** The try the change was about. Null for a hint on a mission not started. */
   readonly attempt: AttemptView | null;

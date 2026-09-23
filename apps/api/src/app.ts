@@ -15,6 +15,7 @@
  *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019, then EXPD-020
  *     app.use('/media', ...);          //    EXPD-021
  *     app.use('/sessions' and '/expeditions', ...) // EXPD-022, the leaderboards
+ *     app.use('/sessions', ...);       //    EXPD-023, the realtime channel
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -42,6 +43,14 @@ import {
   createSessionLeaderboardRouter,
 } from './leaderboard/index.ts';
 import { readStorageConfig } from './config/storage-config.ts';
+import { readRealtimeConfig } from './config/realtime-config.ts';
+import {
+  createRealtimeRouter,
+  InProcessBroker,
+  RealtimeHub,
+  RedisBroker,
+  type RealtimeBroker,
+} from './realtime/index.ts';
 import { globalRepository, tenantRepository, type Queryable } from './db/index.ts';
 import {
   createHealthRouter,
@@ -108,6 +117,15 @@ export interface AppOptions {
    * rather than that the address does not exist.
    */
   readonly mediaStorage?: MediaStorage;
+  /**
+   * What carries realtime events between instances (EXPD-023).
+   *
+   * Redis when `REDIS_URL` is set (`config/realtime-config.ts`), and the
+   * in-process broker when it is not. Tests pass their own.
+   */
+  readonly realtimeBroker?: RealtimeBroker;
+  /** How often an open stream sends a heartbeat, in seconds. Tests shorten it. */
+  readonly realtimeHeartbeatSeconds?: number;
 }
 
 /**
@@ -147,18 +165,24 @@ export function createApp(options: AppOptions = {}): Express {
     const db = options.db;
     const authConfig = options.authConfig ?? readAuthConfig();
     const auth = buildAuthService(db, authConfig);
+    // EXPD-023. One hub for the whole app: every router that changes a run
+    // tells it, and every open stream on this instance hangs off it.
+    const realtime = new RealtimeHub({
+      broker: options.realtimeBroker ?? realtimeBrokerFromEnvironment(),
+      ...(options.log === undefined ? {} : { log: options.log }),
+    });
 
     app.use('/auth', createAuthRouter(auth));
     app.use('/expeditions', createExpeditionRouter({ db, auth }));
     // EXPD-018. `/join` is on its own because it is the one router with no
     // auth in front of it.
-    app.use('/join', createJoinRouter({ db, auth, authConfig }));
+    app.use('/join', createJoinRouter({ db, auth, authConfig, realtime }));
     // `/sessions` is shared ground: EXPD-018 owns the code, the teams and the
     // students under a run, and EXPD-019 owns the run itself. Express is happy
     // with two routers on one path, and the two never claim the same address —
     // everything EXPD-019 adds is either `/` or a verb under `/:sessionId`.
-    app.use('/sessions', createParticipationRouter({ db, auth, authConfig }));
-    app.use('/sessions', createSessionRouter({ db, auth }));
+    app.use('/sessions', createParticipationRouter({ db, auth, authConfig, realtime }));
+    app.use('/sessions', createSessionRouter({ db, auth, realtime }));
     // EXPD-020: playing a mission inside a run. Everything it adds is under
     // `/:sessionId/missions` or `/:sessionId/teams/:teamId/missions`, which
     // neither router above claims.
@@ -167,6 +191,7 @@ export function createApp(options: AppOptions = {}): Express {
       createPlayRouter({
         db,
         auth,
+        realtime,
         ...(options.missionTypes === undefined ? {} : { missionTypes: options.missionTypes }),
       }),
     );
@@ -174,6 +199,20 @@ export function createApp(options: AppOptions = {}): Express {
     // `leaderboard` is a noun no router above claims under either path.
     app.use('/sessions', createSessionLeaderboardRouter({ db, auth }));
     app.use('/expeditions', createExpeditionLeaderboardRouter({ db, auth }));
+    // EXPD-023: `/:sessionId/events` and `/:sessionId/announcements`, nouns no
+    // router above claims.
+    app.use(
+      '/sessions',
+      createRealtimeRouter({
+        db,
+        auth,
+        hub: realtime,
+        ...(options.realtimeHeartbeatSeconds === undefined
+          ? {}
+          : { heartbeatSeconds: options.realtimeHeartbeatSeconds }),
+        ...(options.log === undefined ? {} : { log: options.log }),
+      }),
+    );
     // EXPD-021: signed URLs, so a phone uploads straight to Blob Storage.
     app.use(
       '/media',
@@ -204,6 +243,12 @@ function jsonBody(): RequestHandler {
 function mediaStorageFromEnvironment(): MediaStorage | undefined {
   const config = readStorageConfig();
   return config === undefined ? undefined : mediaStorageFrom(config);
+}
+
+/** Redis when the environment names it, one process on its own when it does not. */
+function realtimeBrokerFromEnvironment(): RealtimeBroker {
+  const endpoint = readRealtimeConfig();
+  return endpoint === undefined ? new InProcessBroker() : new RedisBroker({ endpoint });
 }
 
 /**

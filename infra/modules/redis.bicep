@@ -1,11 +1,9 @@
 /*
   Azure Cache for Redis (EXPD-007).
 
-  Nothing reads it yet. It is here because the things that will are already
-  written down: the realtime channel (EXPD-023) needs somewhere to fan an
-  event out from that is not one web app's memory, and the leaderboard
-  (EXPD-022) needs somewhere to hold a running score that is not a table it
-  would have to recompute per request.
+  The realtime channel (EXPD-023) fans its events out through it, so that a
+  phone on one web app instance hears a teacher on another. The leaderboard
+  (EXPD-022) may yet use it to hold a running score.
 
   TLS only. The non-TLS port is off, so a client that forgets `rediss://`
   fails to connect rather than succeeding in clear.

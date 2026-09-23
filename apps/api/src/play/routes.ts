@@ -72,7 +72,10 @@ import {
   id as uuid,
   type Checker,
 } from '../http/validation.ts';
+import type { RealtimeHub } from '../realtime/hub.ts';
+import { playedNotices, tellRun } from '../realtime/notices.ts';
 import { PlayService } from './play-service.ts';
+import type { PlayView } from './views.ts';
 
 /** A document id, as EXPD-002 writes them: short, and not a sentence. */
 const documentId = (): Checker<string> => string({ min: 1, max: 200 });
@@ -170,6 +173,8 @@ export interface PlayRouterOptions {
    * its work to a teacher.
    */
   readonly missionTypes?: readonly MissionTypeEntry[];
+  /** Where the team's phones and the teacher hear about it (EXPD-023). */
+  readonly realtime?: RealtimeHub;
 }
 
 /** Builds the mission attempt and submission routes. */
@@ -177,6 +182,15 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
   const router = Router();
   const { db, auth } = options;
   const coded = options.missionTypes ?? [];
+
+  /** Tells the run what one change did, once it is committed. */
+  const tell = (request: Request, sessionId: string, played: PlayView): void => {
+    tellRun(
+      options.realtime,
+      { organisationId: principalOf(request).organisationId, sessionId },
+      playedNotices(played),
+    );
+  };
 
   const deviceStack: RequestHandler[] = [
     authenticate(auth),
@@ -206,6 +220,7 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
         sessionId,
         missionId,
       );
+      tell(request, sessionId, played);
       response.status(201).json(played);
     },
   );
@@ -242,6 +257,7 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
           ...(body.submittedAt === undefined ? {} : { submittedAt: body.submittedAt }),
         },
       );
+      tell(request, sessionId, played);
       response.status(201).json(played);
     },
   );
@@ -260,6 +276,11 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
         missionId,
         body.hintId === undefined ? {} : { hintId: body.hintId },
       );
+      // A hint opened before costs nothing and changes nothing, so there is
+      // nothing to tell anybody.
+      if (played.hint?.alreadyOpened !== true) {
+        tell(request, sessionId, played);
+      }
       response.status(played.hint?.alreadyOpened === true ? 200 : 201).json(played);
     },
   );
@@ -282,6 +303,7 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
           ...(body.note === undefined ? {} : { note: body.note }),
         },
       );
+      tell(request, sessionId, played);
       response.status(200).json(played);
     },
   );

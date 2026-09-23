@@ -154,8 +154,9 @@ curl "$(az deployment group show -g rg-explorer-dev -n expd-007-dev \
 ```
 
 `{"status":"ok","apiVersion":"...","engineVersion":"...","uptimeSeconds":...}`
-means the plan, the app, the runtime and the startup command are right. It still does not exercise PostgreSQL or
-Redis, because nothing in the repository opens a connection to either yet.
+means the plan, the app, the runtime and the startup command are right. It still does not exercise PostgreSQL,
+because nothing in the repository opens a connection to it yet, or Redis, which the API only connects to when the
+first realtime stream opens or the first event is sent (EXPD-023).
 
 prod is the same seven steps with `rg-explorer-prod` and
 `main.prod.bicepparam`.

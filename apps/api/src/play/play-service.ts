@@ -314,6 +314,7 @@ export class PlayService {
       const progression = await this.#advance(context, progress, context.score);
 
       return {
+        teamId: context.team.id,
         mission: missionViewOf(progress, context.statePolicy),
         attempt: toAttemptView(attempt),
         score: { total: context.score.total, events: [] },
@@ -447,6 +448,7 @@ export class PlayService {
 
       if (context.spentHints.has(hint.id)) {
         return {
+          teamId: context.team.id,
           mission: missionViewOf(context.progress, context.statePolicy),
           attempt: attempt === null ? null : toAttemptView(attempt),
           hint: hintView(hint, true),
@@ -486,6 +488,7 @@ export class PlayService {
       const progression = await this.#advance(context, context.progress, scored.score);
 
       return {
+        teamId: context.team.id,
         mission: missionViewOf(context.progress, context.statePolicy),
         attempt: attempt === null ? null : toAttemptView(attempt),
         hint: hintView(hint, false),
@@ -799,6 +802,7 @@ export class PlayService {
     const progression = await this.#advance(context, progress, score);
 
     return {
+      teamId: context.team.id,
       mission: missionViewOf(progress, context.statePolicy),
       attempt: toAttemptView(settled ?? attempt),
       ...(submission === undefined ? {} : { submission: toSubmissionView(submission) }),
