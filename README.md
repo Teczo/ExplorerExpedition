@@ -98,7 +98,8 @@ pausing it, extending it and ending it, and the one clock every team in it
 plays against (EXPD-019), and the endpoints a team plays a mission through —
 starting a try, handing work in, opening a hint, and a teacher marking
 waiting work complete (EXPD-020), and the signed URLs a phone uploads a
-photograph with and a teacher reads it back with (EXPD-021), all described
+photograph with and a teacher reads it back with (EXPD-021), and the
+leaderboards of a run and of an expedition (EXPD-022), all described
 below. The rest is tracked in its
 own tickets:
 
@@ -2223,6 +2224,85 @@ that says so.
 3. **No proof against Azure.** The tests prove the signed string matches
    Azure's documented list field by field; only a real storage account can
    prove Azure agrees. Try one upload on `dev` before relying on it.
+
+### Leaderboards
+
+`apps/api/src/leaderboard/` places teams in order. It reads figures other
+tickets keep and writes nothing.
+
+| Endpoint                          | Who                  | What it answers with                          |
+| --------------------------------- | -------------------- | --------------------------------------------- |
+| `GET /sessions/:id/leaderboard`   | Staff, and the run's phones | The teams in one run, placed.          |
+| `GET /expeditions/:id/leaderboard`| Staff only           | Every team from every ended run, placed.      |
+
+```bash
+$ curl .../sessions/$RUN/leaderboard
+{"sessionId": "…", "sessionName": "Year 6 — Tuesday", "sessionStatus": "running",
+ "visibility": "live", "tieBreaks": ["earliest-finish"], "final": false, "shown": true,
+ "standings": [{"rank": 1, "teamId": "…", "teamName": "Otters", "totalScore": 40,
+                "missionsCompleted": 2, "hintsUsed": 2, "failedAttempts": 1,
+                "finished": true, "finishSeconds": 1200, "members": ["Asha", "Ben"]}, ...]}
+```
+
+**Display names only.** A run's board lists each team's members by the name
+they typed when they joined, and nothing else about them: no participant id,
+no device, no account, no role. The one read of `participant` names its
+columns — `id`, `display_name`, `status` — so nothing more is ever in memory.
+A student taken out of the run is not listed. The expedition's board puts
+several classes side by side, so it names no child at all: a team there is
+its name and the run it played in.
+
+**How teams are placed.** The higher `team.total_score` first — the kept
+total EXPD-014 keeps beside the stream. Then each tie break the revision
+names, in the order it names them. Teams still level share a place, and the
+next place is skipped (1, 1, 3). The tie-break figures are counted from rows
+EXPD-020 writes:
+
+| Tie break                  | Counted from                                              |
+| -------------------------- | --------------------------------------------------------- |
+| `earliest-finish`          | `team.finished_at`, or the first `expedition-finished` line in the stream. Seconds from the run's start. Not finishing is last. |
+| `most-missions-completed`  | Distinct missions with a `complete` line in `mission_transition`. |
+| `fewest-hints-used`        | Rows in `hint_request`.                                    |
+| `fewest-failed-attempts`   | `team.failed_attempts`.                                    |
+
+A withdrawn team is not on either board.
+
+**Who sees a run's board, and when**, is the pinned revision's
+`scoring.leaderboard.visibility`:
+
+| visibility     | Staff                 | A phone               |
+| -------------- | --------------------- | --------------------- |
+| `live`         | always                | always                |
+| `teacher-only` | always                | once the run is over  |
+| `final-only`   | once the run is over  | once the run is over  |
+| `hidden`       | never                 | never                 |
+
+A board that may not be seen yet still answers `200`, with `shown: false`
+and no standings, and no team row is read. A phone reads only its own run's
+board: another run's is `404`, as is another school's for anybody.
+
+**The expedition's board** takes runs that `ended` (not `cancelled`), leaves
+out any whose revision is `hidden`, and uses the tie breaks of the newest
+revision among them. `?limit=` takes 1 to 200 and defaults to 50; `total`
+says how many teams there are in all.
+
+| File                                  | What it holds                                  |
+| ------------------------------------- | ---------------------------------------------- |
+| `leaderboard/ranking.ts`              | Placing teams. Pure.                           |
+| `leaderboard/leaderboard-repository.ts` | The figures, read column by column.          |
+| `leaderboard/leaderboard-service.ts`  | Who sees which board, and when.                |
+| `leaderboard/views.ts`                | What a client reads.                           |
+| `leaderboard/routes.ts`               | The endpoints, and the stack in front of them. |
+| `test/leaderboard/`                   | 52 tests, over real sockets and real tokens.   |
+
+**What is deliberately not here.**
+
+1. **Nothing is pushed.** A phone asks again. Sending a new board when a score
+   changes is the realtime channel (EXPD-023).
+2. **Nothing is drawn.** The student app's view is EXPD-045, and Director
+   Mode's is EXPD-055.
+3. **No history.** A board is today's figures. Results and analytics after the
+   afternoon are EXPD-059.
 
 ### Known gaps in `apps/student-mobile`
 
