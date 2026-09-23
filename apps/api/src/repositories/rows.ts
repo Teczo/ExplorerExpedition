@@ -494,3 +494,27 @@ export interface HintRequestRow {
   readonly hint_key: string;
   readonly opened_at: Date;
 }
+
+/** What a `media_asset` is. Matches the enum in 0001. */
+export type MediaKind = 'image' | 'audio' | 'video' | 'document';
+
+/** Whether its file has arrived. Matches the enum in 0001. */
+export type MediaStatus = 'pending' | 'ready' | 'failed' | 'deleted';
+
+/**
+ * A row of `media_asset` (EXPD-021), as far as signing a URL reads it.
+ *
+ * Where the bytes are, never a URL: a URL is signed when it is asked for.
+ */
+export interface MediaAssetRow {
+  readonly id: string;
+  readonly organisation_id: string;
+  readonly kind: MediaKind;
+  readonly status: MediaStatus;
+  readonly storage_container: string;
+  readonly storage_path: string;
+  readonly content_type: string | null;
+  readonly uploaded_by: string | null;
+  readonly uploaded_by_participant: string | null;
+  readonly created_at: Date;
+}
