@@ -17,6 +17,8 @@
  *   `config-schema.ts`    The schema language, and checking a schema.
  *   `validate-config.ts`  Checking a value against a schema.
  *   `definition.ts`       What one mission type is, and checking one.
+ *   `authoring.ts`        What the Studio's builder adds: validation method,
+ *                         default scoring and the student layout (EXPD-025).
  */
 
 export * from './capabilities.ts';
@@ -24,3 +26,4 @@ export * from './issues.ts';
 export * from './config-schema.ts';
 export * from './validate-config.ts';
 export * from './definition.ts';
+export * from './authoring.ts';

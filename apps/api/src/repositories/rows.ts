@@ -28,6 +28,7 @@ import type {
   ScoreLimitKind,
   SessionStatus,
   TeamStatus,
+  VerificationMode,
 } from '@explorer/shared-types';
 
 /** Why a sign-in or a device stopped being usable. Matches the enum in 0002. */
@@ -330,6 +331,20 @@ export interface MissionTypeDefinitionRow extends MissionTypeRow {
   readonly config_schema: JsonObject;
   readonly submission_schema: JsonObject;
   readonly default_config: JsonObject;
+}
+
+/**
+ * A row of `mission_type`, as the Mission Type Builder reads it (EXPD-025).
+ *
+ * The three columns migration 0007 adds, and who made the row and when.
+ */
+export interface AuthoredMissionTypeRow extends MissionTypeDefinitionRow {
+  readonly validation_method: VerificationMode;
+  readonly default_scoring: JsonObject;
+  readonly student_layout: JsonObject;
+  readonly created_by: string | null;
+  readonly created_at: Date | string;
+  readonly updated_at: Date | string;
 }
 
 /**

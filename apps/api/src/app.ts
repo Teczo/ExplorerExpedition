@@ -16,6 +16,7 @@
  *     app.use('/media', ...);          //    EXPD-021
  *     app.use('/sessions' and '/expeditions', ...) // EXPD-022, the leaderboards
  *     app.use('/sessions', ...);       //    EXPD-023, the realtime channel
+ *     app.use('/mission-types', ...);  //    EXPD-025, the Mission Type Builder
  *     app.use(notFoundHandler());      // 5. nothing claimed the path
  *     app.use(errorHandler());         // 6. the last word
  *
@@ -37,6 +38,7 @@ import {
 } from './participation/index.ts';
 import { createSessionRouter } from './sessions/index.ts';
 import { createPlayRouter } from './play/index.ts';
+import { createMissionTypeRouter } from './mission-types/index.ts';
 import { createMediaRouter, mediaStorageFrom, type MediaStorage } from './media/index.ts';
 import {
   createExpeditionLeaderboardRouter,
@@ -213,6 +215,8 @@ export function createApp(options: AppOptions = {}): Express {
         ...(options.log === undefined ? {} : { log: options.log }),
       }),
     );
+    // EXPD-025: the Studio's Mission Type Builder saves drafts here.
+    app.use('/mission-types', createMissionTypeRouter({ db, auth }));
     // EXPD-021: signed URLs, so a phone uploads straight to Blob Storage.
     app.use(
       '/media',
