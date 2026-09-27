@@ -22,6 +22,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_a
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0005_session_lifecycle.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0006_mission_play.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0007_mission_type_builder.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails

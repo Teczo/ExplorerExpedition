@@ -102,7 +102,8 @@ photograph with and a teacher reads it back with (EXPD-021), and the
 leaderboards of a run and of an expedition (EXPD-022), and the realtime
 channel that tells a run's phones and its teacher what just changed
 (EXPD-023), and the Studio shell that only the Explorer team can open
-(EXPD-024), all described below. The rest is tracked in its
+(EXPD-024), and the Mission Type Builder inside it (EXPD-025), all
+described below. The rest is tracked in its
 own tickets:
 
 - Student app shell — EXPD-040
@@ -2479,6 +2480,62 @@ no CORS headers, so this proxy is also why the Studio works in development.
    this ticket's.
 4. **No server-side Studio check.** The Studio's check decides what to draw.
    Each Studio endpoint, when a later ticket adds it, makes its own check.
+
+### The Mission Type Builder
+
+The Studio's **Mission types** screen lists every type the organisation can
+see (its own and the platform's) and builds new ones. An author decides six
+things about a type:
+
+1. **About it.** Key, version, name, description, and what it needs from the
+   phone (`camera`, `location`, ...).
+2. **Fields.** The settings an author fills in when placing a mission. Six
+   kinds: text, number, whole number, yes or no, choice, list of text. Each
+   can be required, bounded and given a starting value. The fields become the
+   type's `configSchema`, and the starting values become `defaultConfig`.
+   A schema the fields cannot describe opens as JSON instead.
+3. **What a team hands in.** The same editor, for `submissionSchema`.
+4. **Validation method.** The `verification` a new mission of this type starts
+   with: `automatic`, `teacher` or `automatic-with-review`. A Studio type has
+   no code, so `automatic` finishes only on a reached place (EXPD-011).
+5. **Default scoring.** Base points, an optional cap, and partial credit: the
+   `scoring` a new mission of this type starts with.
+6. **Student-facing layout.** Blocks top to bottom (brief, instructions,
+   media, one of the type's settings, timer, hints, the hand-in area) and the
+   words on the submit button. A preview shows roughly what a phone draws.
+   Only settings placed in the layout are shown, so answers stay hidden.
+
+The last three are `MissionTypeAuthoring` in
+`packages/shared-types/src/mission-type/authoring.ts`, kept apart from
+`MissionTypeDefinition` because the registry does not need them.
+`validateAuthoredMissionType` checks all six. The Studio runs it as the
+author types, and the API runs it again before it saves.
+
+| Endpoint                   | Permission           | What it does                            |
+| -------------------------- | -------------------- | --------------------------------------- |
+| `GET /mission-types`       | `mission-type:read`  | This organisation's and the platform's. |
+| `GET /mission-types/:id`   | `mission-type:read`  | One of them.                            |
+| `POST /mission-types`      | `mission-type:write` | Saves a new type, always as a draft.    |
+| `PUT /mission-types/:id`   | `mission-type:write` | Saves over this organisation's draft.   |
+
+Rules the API holds:
+
+- A type that does not pass the check is refused (422), not stored. The
+  registry skips a broken row, so a mission built on it could never play.
+- A key and version already held by this organisation **or the platform** is
+  refused (409). An organisation's type wins over the platform's under the
+  same key and version, so allowing it would change existing expeditions.
+- Key and version are fixed after creation, because missions point at a type
+  by them. A published type or a platform type is not changed here (409).
+- Every save writes `mission-type.created` or `mission-type.updated` to the
+  audit log in the same transaction.
+
+Migration `0007_mission_type_builder.sql` adds `validation_method`,
+`default_scoring` and `student_layout` to `mission_type`, with defaults equal
+to `DEFAULT_MISSION_TYPE_AUTHORING`.
+
+**What is deliberately not here.** Publishing and versioning a type
+(EXPD-031), deleting one, and scoring rules beyond the default (EXPD-028).
 
 ### Known gaps in `apps/student-mobile`
 
