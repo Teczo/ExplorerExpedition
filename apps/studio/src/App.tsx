@@ -1,21 +1,47 @@
 /**
- * Studio shell.
+ * Studio shell (EXPD-024).
  *
- * This is scaffold only. The real shell is EXPD-024.
+ * Nothing inside the shell is drawn until the server has confirmed the
+ * signed-in person is on the Explorer team. Every other state has its own
+ * screen, and none of them shows a route.
  */
+
+import { useAuthState } from './auth/AuthProvider.tsx';
+import { AccessDeniedPage } from './pages/AccessDeniedPage.tsx';
+import { ChooseOrganisationPage } from './pages/ChooseOrganisationPage.tsx';
+import { NotFoundPage } from './pages/NotFoundPage.tsx';
+import { SignInPage } from './pages/SignInPage.tsx';
+import { usePath } from './router.tsx';
+import { ROUTES } from './routes.tsx';
+import { Shell } from './shell/Shell.tsx';
+import { Loading } from './shell/ui.tsx';
+
 export function App() {
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-2xl px-6 py-20">
-        <p className="text-sm font-medium tracking-widest text-slate-400 uppercase">
-          Explorer Expedition
-        </p>
-        <h1 className="mt-3 text-4xl font-semibold">Studio</h1>
-        <p className="mt-4 text-slate-300">Authoring tool for mission types, expedition graphs and scoring rules.</p>
-        <p className="mt-8 text-sm text-slate-500">
-          Scaffold only. The application shell is EXPD-024.
-        </p>
-      </div>
-    </main>
-  );
+  const state = useAuthState();
+  const path = usePath();
+
+  switch (state.status) {
+    case 'loading':
+      return <Loading />;
+    case 'signed-out':
+      return <SignInPage error={state.error} />;
+    case 'choosing-organisation':
+      return (
+        <ChooseOrganisationPage
+          displayName={state.displayName}
+          organisations={state.organisations}
+          error={state.error}
+        />
+      );
+    case 'denied':
+      return <AccessDeniedPage displayName={state.displayName} />;
+    case 'signed-in': {
+      const Page = ROUTES.find((route) => route.path === path)?.page ?? NotFoundPage;
+      return (
+        <Shell>
+          <Page />
+        </Shell>
+      );
+    }
+  }
 }
