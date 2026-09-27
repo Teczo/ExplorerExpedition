@@ -101,10 +101,10 @@ waiting work complete (EXPD-020), and the signed URLs a phone uploads a
 photograph with and a teacher reads it back with (EXPD-021), and the
 leaderboards of a run and of an expedition (EXPD-022), and the realtime
 channel that tells a run's phones and its teacher what just changed
-(EXPD-023), all described below. The rest is tracked in its
+(EXPD-023), and the Studio shell that only the Explorer team can open
+(EXPD-024), all described below. The rest is tracked in its
 own tickets:
 
-- Studio shell — EXPD-024
 - Student app shell — EXPD-040
 - Creator web shell — EXPD-049
 - Admin portal — EXPD-070
@@ -2418,6 +2418,67 @@ is over (`409`). They change no record, so they write no audit entry.
 5. **No proof against Azure Cache for Redis.** The tests use a fake Redis over
    a real socket. Only the real cache can prove TLS and `AUTH` work there. Try
    one stream on `dev` before relying on it.
+
+### The Studio shell
+
+`apps/studio` is internal. Only the Explorer team may open it, and the
+Explorer team is the platform support accounts: `app_user.is_platform_admin`.
+The Studio asks that as a permission, `platform:administer`, never as a role
+(`src/auth/access.ts`).
+
+**Signing in** uses the API's two steps (EXPD-004) and nothing new on the
+server:
+
+1. `POST /auth/sign-in`. When the answer says the account is not a platform
+   admin, the Studio calls `/auth/sign-out` straight away and shows "No access
+   to Studio". The refresh token is never stored.
+2. With more than one organisation, the person picks one, and
+   `POST /auth/token` mints the access token. With one, or with the one used
+   last time, there is no question.
+3. `GET /auth/me`. The shell is drawn only when the server says the principal
+   holds `platform:administer`. Nothing inside it renders before that.
+
+**What is kept where.** The access token is in memory only, and is minted again
+from the refresh token when less than a minute is left. The refresh token is in
+`sessionStorage`: a reload keeps you signed in, closing the tab does not. It
+rotates on every reload, and `restore()` runs once even though React runs
+effects twice in development, because a refresh token used twice ends the
+sign-in.
+
+**Calling the API.** Later screens call `useSession().request(path, init)`. It
+adds the bearer token and sends the Studio back to sign-in on any 401.
+
+**Adding a screen** is one line in `src/routes.tsx`. The side navigation and
+the page switch both read that list.
+
+**Where the API is.** `VITE_API_URL`, read at build time, defaults to `/api` on
+the Studio's own origin. `npm run dev:studio` forwards `/api` to
+http://localhost:3000 (`STUDIO_API_PROXY_TARGET` changes that). The API sends
+no CORS headers, so this proxy is also why the Studio works in development.
+
+| File                          | What it holds                                   |
+| ----------------------------- | ----------------------------------------------- |
+| `src/auth/access.ts`          | Who may use the Studio.                         |
+| `src/auth/api-client.ts`      | The auth calls, and the one `ApiError`.         |
+| `src/auth/session.ts`         | The sign-in, from start to finish.              |
+| `src/auth/AuthProvider.tsx`   | Hands the session to React.                     |
+| `src/router.tsx`              | Path, `navigate` and `Link`, on the History API.|
+| `src/routes.tsx`              | The screens, and the navigation.                |
+| `src/shell/`                  | The header, the side navigation, shared UI.     |
+| `src/pages/`                  | Sign in, pick an organisation, no access, overview, not found. |
+| `test/`                       | 27 tests, with `node --test`.                   |
+
+**What is deliberately not here.**
+
+1. **No routing library.** It is a dependency. The History API is enough for a
+   flat list of screens.
+2. **No Studio screens.** Mission types, the graph editor and the rest are
+   EXPD-025 to EXPD-031.
+3. **No deployed API address.** A deployed Studio needs either `VITE_API_URL`
+   plus CORS on the API, or a Vercel rewrite from `/api` to the API. Neither is
+   this ticket's.
+4. **No server-side Studio check.** The Studio's check decides what to draw.
+   Each Studio endpoint, when a later ticket adds it, makes its own check.
 
 ### Known gaps in `apps/student-mobile`
 
