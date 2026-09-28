@@ -1,25 +1,21 @@
 /**
  * The expedition graph editor (EXPD-026).
  *
- * A palette across the top, the canvas, and two panels under it: the
- * problems with the graph, and a small bar for whatever is selected. The
- * bar holds only what the graph itself needs — a node's name, whether a
- * mission is secret or the boss, an edge's label. Everything else about a
- * mission is the property panel's (EXPD-027), and an edge's condition and
- * route are EXPD-029's.
+ * A palette across the top, the canvas with the property panel to its right
+ * (EXPD-027), and the problems with the graph under them. The panel edits
+ * whatever is selected; an edge's condition and route are EXPD-029's.
  *
  * A draft may be saved unfinished (EXPD-017). The problems list is the same
  * check the API runs, as the author works.
  */
 
 import { useMemo, useState } from 'react';
-import type { ExpeditionNode } from '@explorer/shared-types';
-
 import { ApiError } from '../auth/api-client.ts';
 import type { MissionTypeView } from '../mission-types/api.ts';
 import { ErrorNote, inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 import type { ExpeditionApi, ExpeditionDocumentView, ExpeditionView } from './api.ts';
 import { GraphCanvas, type Selection } from './GraphCanvas.tsx';
+import { PropertyPanel } from './PropertyPanel.tsx';
 import {
   addBranch,
   addNode,
@@ -30,10 +26,6 @@ import {
   openDocument,
   removeEdge,
   removeNode,
-  renameNode,
-  roleOf,
-  setEdgeLabel,
-  setMissionFlag,
   toDocument,
   type Added,
   type GraphState,
@@ -207,7 +199,7 @@ export function GraphEditor({
       {notice !== null && <p className="mt-2 text-sm text-sky-300">{notice}</p>}
       {saveError !== null && <ErrorNote>{saveError}</ErrorNote>}
 
-      <div className="mt-3">
+      <div className="mt-3 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <GraphCanvas
           state={state}
           selection={selection}
@@ -224,128 +216,66 @@ export function GraphEditor({
           }}
           onDelete={remove}
         />
+        <div className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+          <PropertyPanel
+            state={state}
+            node={selectedNode}
+            edge={selectedEdge}
+            missionTypes={missionTypes}
+            onChange={change}
+            onRemove={remove}
+          />
+        </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="rounded-lg border border-slate-800 p-4">
-          <h2 className="font-semibold">Selected</h2>
-          {selectedNode !== undefined && (
-            <NodeBar
-              node={selectedNode}
-              onRename={(title) => change(renameNode(state, selectedNode.id, title))}
-              onFlag={(flag, on) => change(setMissionFlag(state, selectedNode.id, flag, on))}
-              onRemove={remove}
-            />
-          )}
-          {selectedEdge !== undefined && (
-            <div className="mt-2 space-y-2 text-sm">
-              <label className="block text-xs text-slate-400">
-                Label on the edge
-                <input
-                  className={inputClass}
-                  value={selectedEdge.label ?? ''}
-                  onChange={(event) => change(setEdgeLabel(state, selectedEdge.id, event.target.value))}
-                />
-              </label>
-              {(selectedEdge.condition !== undefined || selectedEdge.audience !== undefined) && (
-                <p className="text-xs text-amber-300">This edge has a condition or a route. They are kept as they are.</p>
-              )}
-              <button type="button" className={secondaryButtonClass} onClick={remove}>
-                Remove edge
-              </button>
-            </div>
-          )}
-          {selection === null && <p className="mt-2 text-sm text-slate-400">Click a node or an edge.</p>}
-        </div>
-
-        <div className="rounded-lg border border-slate-800 p-4">
-          <h2 className="font-semibold">
-            {issues.graph.length === 0 ? 'The graph has no problems' : `Problems with the graph (${issues.graph.length})`}
-          </h2>
-          <ul className="mt-2 space-y-1 text-xs text-red-300">
-            {issues.graph.map((issue, index) => {
-              const target = issue.nodeIds[0] ?? issue.edgeIds[0];
-              return (
+      <div className="mt-4 rounded-lg border border-slate-800 p-4">
+        <h2 className="font-semibold">
+          {issues.graph.length === 0 ? 'The graph has no problems' : `Problems with the graph (${issues.graph.length})`}
+        </h2>
+        <ul className="mt-2 space-y-1 text-xs text-red-300">
+          {issues.graph.map((issue, index) => {
+            const target = issue.nodeIds[0] ?? issue.edgeIds[0];
+            return (
+              <li key={`${issue.path}-${index}`}>
+                {target === undefined ? (
+                  <span className="font-mono text-red-400">{issue.path}</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="font-mono text-red-400 hover:underline"
+                    onClick={() =>
+                      setSelection(
+                        issue.nodeIds[0] !== undefined
+                          ? { kind: 'node', id: issue.nodeIds[0] }
+                          : { kind: 'edge', id: target },
+                      )
+                    }
+                  >
+                    {issue.path}
+                  </button>
+                )}{' '}
+                {issue.message}
+              </li>
+            );
+          })}
+        </ul>
+        {issues.elsewhere.length > 0 && (
+          <details className="mt-3 text-xs text-slate-400">
+            <summary>
+              {issues.elsewhere.length} more outside the graph (rules, scoring, details), for other screens
+            </summary>
+            <ul className="mt-1 space-y-1">
+              {issues.elsewhere.map((issue, index) => (
                 <li key={`${issue.path}-${index}`}>
-                  {target === undefined ? (
-                    <span className="font-mono text-red-400">{issue.path}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="font-mono text-red-400 hover:underline"
-                      onClick={() =>
-                        setSelection(
-                          issue.nodeIds[0] !== undefined
-                            ? { kind: 'node', id: issue.nodeIds[0] }
-                            : { kind: 'edge', id: target },
-                        )
-                      }
-                    >
-                      {issue.path}
-                    </button>
-                  )}{' '}
-                  {issue.message}
+                  <span className="font-mono">{issue.path || 'document'}</span> {issue.message}
                 </li>
-              );
-            })}
-          </ul>
-          {issues.elsewhere.length > 0 && (
-            <details className="mt-3 text-xs text-slate-400">
-              <summary>
-                {issues.elsewhere.length} more outside the graph (rules, scoring, details), for other screens
-              </summary>
-              <ul className="mt-1 space-y-1">
-                {issues.elsewhere.map((issue, index) => (
-                  <li key={`${issue.path}-${index}`}>
-                    <span className="font-mono">{issue.path || 'document'}</span> {issue.message}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <p className="mt-3 text-xs text-slate-500">A draft may be saved with problems. Publishing needs none.</p>
-        </div>
+              ))}
+            </ul>
+          </details>
+        )}
+        <p className="mt-3 text-xs text-slate-500">A draft may be saved with problems. Publishing needs none.</p>
       </div>
     </section>
-  );
-}
-
-function NodeBar({
-  node,
-  onRename,
-  onFlag,
-  onRemove,
-}: {
-  node: ExpeditionNode;
-  onRename: (title: string) => void;
-  onFlag: (flag: 'secret' | 'boss', on: boolean) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="mt-2 space-y-2 text-sm">
-      <p className="text-xs text-slate-400">
-        {roleOf(node)} · <span className="font-mono">{node.id}</span>
-      </p>
-      <label className="block text-xs text-slate-400">
-        Name (for authors; students do not see it)
-        <input className={inputClass} value={node.title} onChange={(event) => onRename(event.target.value)} />
-      </label>
-      {node.kind === 'mission' && (
-        <div className="flex gap-4">
-          <label className="flex items-center gap-1">
-            <input type="checkbox" checked={node.secret === true} onChange={(event) => onFlag('secret', event.target.checked)} />
-            Secret — hidden until it opens
-          </label>
-          <label className="flex items-center gap-1">
-            <input type="checkbox" checked={node.boss === true} onChange={(event) => onFlag('boss', event.target.checked)} />
-            Boss
-          </label>
-        </div>
-      )}
-      <button type="button" className={secondaryButtonClass} onClick={onRemove}>
-        Remove node
-      </button>
-    </div>
   );
 }
 

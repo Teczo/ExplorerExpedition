@@ -103,7 +103,8 @@ leaderboards of a run and of an expedition (EXPD-022), and the realtime
 channel that tells a run's phones and its teacher what just changed
 (EXPD-023), and the Studio shell that only the Explorer team can open
 (EXPD-024), and the Mission Type Builder inside it (EXPD-025), and the
-expedition graph editor beside it (EXPD-026), all
+expedition graph editor beside it (EXPD-026), and the property panel that
+edits what is selected on that graph (EXPD-027), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -2577,29 +2578,77 @@ problems are listed and ringed in red on the canvas; clicking one selects the
 node. Problems outside the graph (rules, scoring, details) are folded away,
 because other screens own them. A draft may be saved with problems.
 
-**The selection bar** holds only what the graph needs: a node's name, secret
-and boss on a mission, and an edge's label.
+**The property panel** to the right of the canvas edits whatever is
+selected. It is EXPD-027, described below.
 
 | File                              | What it holds                                   |
 | --------------------------------- | ----------------------------------------------- |
 | `src/expeditions/graph.ts`        | The graph as the editor holds it, and every change to it. Pure functions. |
 | `src/expeditions/GraphCanvas.tsx` | The SVG canvas and the pointer.                 |
-| `src/expeditions/GraphEditor.tsx` | Palette, canvas, problems and selection bar.    |
+| `src/expeditions/GraphEditor.tsx` | Palette, canvas, property panel and problems.   |
 | `src/expeditions/api.ts`          | The EXPD-017 calls the editor makes.            |
 | `src/pages/ExpeditionsPage.tsx`   | The list, and creating one.                     |
 | `test/expedition-graph.test.ts`   | 27 tests, with `node --test`.                   |
 
 **What is deliberately not here.**
 
-1. **A mission's own settings**: brief, instructions, config, scoring,
-   attempts, hints. A new mission starts from its type's defaults. That is
-   the property panel (EXPD-027).
+1. **A mission's own settings.** A new mission starts from its type's
+   defaults. Changing them is the property panel (EXPD-027).
 2. **Conditions and routes on an edge.** A branch's two paths open together
    until one of them has a condition or a route. Those are EXPD-029. The
    editor keeps them, and draws a gated edge dashed and amber.
 3. **Scoring rules** (EXPD-028), **publishing** (EXPD-031) and **undo**.
 4. **No diagram library.** It would be a dependency. The canvas is SVG and
    pointer events.
+
+### The property panel
+
+The right-hand side of the graph editor. Click a node or an edge on the
+canvas, and the panel edits it. Nothing in it needs JSON, except the one case
+in point 4.
+
+| Selected       | What the panel edits                                                    |
+| -------------- | ----------------------------------------------------------------------- |
+| Any node       | Its name on the canvas. Students do not see it.                         |
+| A mission node | Secret and boss, and the mission it holds (below).                      |
+| An edge        | Its label. A condition or a route on it is kept as it is (EXPD-029).    |
+
+For a mission, the panel edits:
+
+1. **The words students see.** Title, brief and instructions. Empty
+   instructions are left out of the document; title and brief are required.
+2. **Judging.** `verification`: automatic, teacher, or automatic with review.
+3. **Scoring.** Points, an optional cap, and partial credit. This is the
+   mission's own `scoring`, not the expedition's scoring rules (EXPD-028).
+4. **The type's settings.** The mission's `config`, drawn as a form from its
+   type's `configSchema`, with the Mission Type Builder's six field kinds
+   (EXPD-025). A schema those kinds cannot draw is shown as JSON instead.
+   The type is found by key and pinned version.
+5. **Attempts and time.** Number of tries (empty means no limit), the wait
+   after a wrong try, and a time limit (empty means not timed).
+6. **Hints.** Add, write, set the token cost, move up or down, remove. A new
+   hint goes after the last one.
+
+**Problems as the author types.** Each field shows its own problems under
+it. They come from two checks: `validateExpeditionDefinition` (the one the
+API runs), and `validateAgainstSchema` against the type's config schema. The
+second is the check the document cannot do on its own. A number that does not
+read yet (say `2.5` for points) stays in its input with the reason, and is not
+written until it reads.
+
+| File                                | What it holds                                  |
+| ----------------------------------- | ---------------------------------------------- |
+| `src/expeditions/properties.ts`     | Every change the panel makes. Pure functions.  |
+| `src/expeditions/PropertyPanel.tsx` | The panel.                                     |
+| `test/mission-properties.test.ts`   | 17 tests, with `node --test`.                  |
+
+**What is deliberately not here.**
+
+1. **Media** (EXPD-030) and **location** (EXPD-039). A mission's `media` and
+   `location` are kept as they are, and the panel says so.
+2. **Changing a mission's type.** The type and its version are pinned when
+   the mission is placed. To change it, place a new mission.
+3. **Scoring rules** (EXPD-028) and **conditions on edges** (EXPD-029).
 
 ### Known gaps in `apps/student-mobile`
 
