@@ -8,6 +8,10 @@
  * once there are none.
  *
  * A type that is not this organisation's draft opens read-only.
+ *
+ * Under the form is where the type goes next (EXPD-031): a saved draft is
+ * published, and a published type starts its next version. Every version of
+ * the key is listed there too, and each one opens.
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
@@ -24,6 +28,7 @@ import type { MissionTypeApi, MissionTypeView } from './api.ts';
 import { blankDraft, draftOf, issuesAt, toAuthored, type BuilderDraft } from './draft.ts';
 import { IssueList } from './IssueList.tsx';
 import { LayoutEditor } from './LayoutEditor.tsx';
+import { lifecycleOf, versionsOf, type Lifecycle } from './lifecycle.ts';
 import { SchemaEditor } from './SchemaEditor.tsx';
 
 /** What each validation method means for a type built here, which has no code. */
@@ -37,14 +42,21 @@ const METHOD_HELP: Record<VerificationMode, string> = {
 
 export function Builder({
   existing,
+  types,
   api,
   onSaved,
+  onOpen,
   onClose,
 }: {
   /** The type being edited, or null for a new one. */
   existing: MissionTypeView | null;
+  /** Every type the list holds, for the other versions of this key. */
+  types: readonly MissionTypeView[];
   api: MissionTypeApi;
+  /** A save, a publish or a new version. The builder then shows what came back. */
   onSaved: (saved: MissionTypeView) => void;
+  /** Opens another version of this key. */
+  onOpen: (type: MissionTypeView) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<BuilderDraft>(() =>
@@ -55,6 +67,9 @@ export function Builder({
 
   const readOnly = existing !== null && !existing.editable;
   const { type, issues } = useMemo(() => toAuthored(draft), [draft]);
+  // What was last saved, as the form read it, so publishing waits for a save.
+  const [savedText, setSavedText] = useState(() => JSON.stringify(type));
+  const unsaved = JSON.stringify(type) !== savedText;
   const set = <K extends keyof BuilderDraft>(key: K, value: BuilderDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
 
@@ -65,6 +80,7 @@ export function Builder({
     setSaveError(null);
     try {
       const saved = existing === null ? await api.create(type) : await api.update(existing.id, type);
+      setSavedText(JSON.stringify(type));
       onSaved(saved);
     } catch (error) {
       setSaveError(error instanceof ApiError ? error.message : 'The mission type could not be saved.');
@@ -261,7 +277,183 @@ export function Builder({
           </button>
         </div>
       )}
+
+      <NextStep
+        key={existing === null ? 'new' : `${existing.id}:${existing.status}`}
+        lifecycle={lifecycleOf(existing, { issues: issues.length, unsaved }, types)}
+        existing={existing}
+        api={api}
+        onSaved={onSaved}
+        onOpen={onOpen}
+      />
+
+      {existing !== null && (
+        <Versions current={existing} versions={versionsOf(types, existing.key)} onOpen={onOpen} />
+      )}
     </section>
+  );
+}
+
+/** Publishing a draft, or starting the next version of a published type. */
+function NextStep({
+  lifecycle,
+  existing,
+  api,
+  onSaved,
+  onOpen,
+}: {
+  lifecycle: Lifecycle;
+  existing: MissionTypeView | null;
+  api: MissionTypeApi;
+  onSaved: (saved: MissionTypeView) => void;
+  onOpen: (type: MissionTypeView) => void;
+}) {
+  const suggested = lifecycle.kind === 'published' ? lifecycle.suggestedVersion : '';
+  const [version, setVersion] = useState(suggested);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (existing === null || lifecycle.kind === 'new' || lifecycle.kind === 'platform') {
+    return null;
+  }
+
+  const run = async (action: () => Promise<MissionTypeView>, failure: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await action();
+      setConfirming(false);
+      onSaved(result);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const ref = `${existing.key}@${existing.version}`;
+
+  if (lifecycle.kind === 'draft') {
+    return (
+      <div className="mt-6 max-w-5xl rounded-lg border border-slate-800 p-4">
+        <h2 className="font-semibold">Publish</h2>
+        <p className="mt-1 text-sm text-slate-300">
+          Publishing freezes {ref}. Missions pin to a type by key and version, so a published type is never changed
+          again. A later change is a new version. Check the student preview above before you publish.
+        </p>
+        {lifecycle.reason !== null && <p className="mt-2 text-sm text-amber-300">{lifecycle.reason}</p>}
+        {error !== null && <ErrorNote>{error}</ErrorNote>}
+        {!confirming ? (
+          <button
+            type="button"
+            className={`${secondaryButtonClass} mt-3`}
+            disabled={!lifecycle.publishable || busy}
+            onClick={() => setConfirming(true)}
+          >
+            Publish {ref}
+          </button>
+        ) : (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-sm">Publish {ref}? This cannot be undone.</span>
+            <button
+              type="button"
+              className="rounded-md bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
+              disabled={!lifecycle.publishable || busy}
+              onClick={() => void run(() => api.publish(existing.id), 'The mission type could not be published.')}
+            >
+              {busy ? 'Publishing…' : 'Yes, publish'}
+            </button>
+            <button type="button" className={secondaryButtonClass} disabled={busy} onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6 max-w-5xl rounded-lg border border-slate-800 p-4">
+      <h2 className="font-semibold">New version</h2>
+      <p className="mt-1 text-sm text-slate-300">
+        {ref} is {existing.status}, so it is not changed. A new version starts as a draft copied from it, under the
+        same key. Missions already placed keep {existing.version}.
+      </p>
+      {lifecycle.openDraft !== null ? (
+        <p className="mt-3 text-sm">
+          <span className="text-amber-300">
+            {existing.key}@{lifecycle.openDraft.version} is already a draft. A key has one draft at a time.
+          </span>{' '}
+          <button
+            type="button"
+            className="text-sky-300 hover:underline"
+            onClick={() => lifecycle.openDraft !== null && onOpen(lifecycle.openDraft)}
+          >
+            Open it
+          </button>
+        </p>
+      ) : (
+        <div className="mt-3 flex items-end gap-3">
+          <label className="text-xs text-slate-400">
+            Version
+            <input
+              className={`${inputClass} w-32 font-mono`}
+              value={version}
+              onChange={(e) => setVersion(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className={secondaryButtonClass}
+            disabled={busy || version.trim() === ''}
+            onClick={() =>
+              void run(() => api.newVersion(existing.id, version.trim()), 'The new version could not be started.')
+            }
+          >
+            {busy ? 'Starting…' : 'Start new version'}
+          </button>
+        </div>
+      )}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
+    </div>
+  );
+}
+
+/** Every version of the open type's key, each one opening. */
+function Versions({
+  current,
+  versions,
+  onOpen,
+}: {
+  current: MissionTypeView;
+  versions: readonly MissionTypeView[];
+  onOpen: (type: MissionTypeView) => void;
+}) {
+  if (versions.length < 2) {
+    return null;
+  }
+  return (
+    <div className="mt-6 max-w-5xl rounded-lg border border-slate-800 p-4">
+      <h2 className="font-semibold">Versions of {current.key}</h2>
+      <ul className="mt-2 space-y-1 text-sm">
+        {versions.map((type) => (
+          <li key={type.id} className="flex gap-3">
+            {type.id === current.id ? (
+              <span className="font-mono">{type.version}</span>
+            ) : (
+              <button type="button" className="font-mono text-sky-300 hover:underline" onClick={() => onOpen(type)}>
+                {type.version}
+              </button>
+            )}
+            <span className="text-slate-400">
+              {type.status}
+              {type.owner === 'platform' ? ', platform' : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

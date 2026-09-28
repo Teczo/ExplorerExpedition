@@ -5,6 +5,8 @@
  *   GET    /mission-types/:id    one of them
  *   POST   /mission-types        save a new type, as a draft
  *   PUT    /mission-types/:id    save over one of this organisation's drafts
+ *   POST   /mission-types/:id/publish   freeze a draft (EXPD-031)
+ *   POST   /mission-types/:id/versions  start the next version as a draft (EXPD-031)
  *
  * The same stack every feature router stands on (EXPD-017): authenticate,
  * the permission, the tenant scope, the audit scope, and the body. Reading
@@ -34,6 +36,7 @@ import {
   bodyOf,
   object,
   paramsOf,
+  string,
   validateBody,
   validateParams,
   id as uuid,
@@ -43,6 +46,16 @@ import { MissionTypeService } from './mission-type-service.ts';
 
 /** The body both saves read. */
 const SaveBody = object({ missionType: authoredMissionType() });
+
+/** The body of a new version: the version it will have. */
+const NewVersionBody = object({
+  version: string({
+    min: 1,
+    max: 40,
+    pattern: /^\d+\.\d+\.\d+$/,
+    patternMessage: 'A version is three dot-separated whole numbers, such as "1.1.0".',
+  }),
+});
 
 /** The path parameters of one type. */
 const IdParams = object({ id: uuid() });
@@ -97,6 +110,30 @@ export function createMissionTypeRouter(options: {
       const { id } = paramsOf(request, IdParams);
       const body = bodyOf(request, SaveBody);
       response.status(200).json(await serviceFor(db, request).update(id, body.missionType));
+    },
+  );
+
+  router.post(
+    '/:id/publish',
+    ...stack('mission-type:write'),
+    validateParams(IdParams),
+    async (request, response) => {
+      const { id } = paramsOf(request, IdParams);
+      response.status(200).json(await serviceFor(db, request).publish(id));
+    },
+  );
+
+  router.post(
+    '/:id/versions',
+    ...stack('mission-type:write'),
+    validateParams(IdParams),
+    validateBody(NewVersionBody),
+    async (request, response) => {
+      const { id } = paramsOf(request, IdParams);
+      const body = bodyOf(request, NewVersionBody);
+      const created = await serviceFor(db, request).newVersion(id, body.version);
+      response.setHeader('Location', `/mission-types/${created.id}`);
+      response.status(201).json(created);
     },
   );
 

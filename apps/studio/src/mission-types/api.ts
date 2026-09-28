@@ -1,5 +1,5 @@
 /**
- * The mission type endpoints, as the builder calls them (EXPD-025).
+ * The mission type endpoints, as the builder calls them (EXPD-025, EXPD-031).
  *
  * Every call goes through `AuthSession.request`, so it carries the bearer
  * token and a 401 ends the sign-in (EXPD-024).
@@ -21,7 +21,7 @@ export interface MissionTypeView extends AuthoredMissionType {
 /** What `AuthSession.request` looks like, so a test can pass its own. */
 export type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
-/** The four calls, bound to a request function. */
+/** The calls, bound to a request function. */
 export function missionTypeApi(request: Request) {
   return {
     async list(): Promise<readonly MissionTypeView[]> {
@@ -43,8 +43,21 @@ export function missionTypeApi(request: Request) {
         body: JSON.stringify({ missionType }),
       });
     },
+    /** Freezes a draft. Nothing changes it afterwards. */
+    publish(id: string): Promise<MissionTypeView> {
+      return request<MissionTypeView>(`/mission-types/${encodeURIComponent(id)}/publish`, {
+        method: 'POST',
+      });
+    },
+    /** Starts the next version of a published type, as a draft copied from it. */
+    newVersion(id: string, version: string): Promise<MissionTypeView> {
+      return request<MissionTypeView>(`/mission-types/${encodeURIComponent(id)}/versions`, {
+        method: 'POST',
+        body: JSON.stringify({ version }),
+      });
+    },
   };
 }
 
-/** The four calls. */
+/** The calls. */
 export type MissionTypeApi = ReturnType<typeof missionTypeApi>;

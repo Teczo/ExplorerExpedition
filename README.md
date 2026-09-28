@@ -106,7 +106,8 @@ channel that tells a run's phones and its teacher what just changed
 expedition graph editor beside it (EXPD-026), and the property panel that
 edits what is selected on that graph (EXPD-027), and the unlock conditions,
 routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
-the media library those missions show files from (EXPD-030), all
+the media library those missions show files from (EXPD-030), and publishing
+and versioning a mission type (EXPD-031), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -2544,8 +2545,72 @@ Migration `0007_mission_type_builder.sql` adds `validation_method`,
 `default_scoring` and `student_layout` to `mission_type`, with defaults equal
 to `DEFAULT_MISSION_TYPE_AUTHORING`.
 
-**What is deliberately not here.** Publishing and versioning a type
-(EXPD-031), deleting one, and scoring rules beyond the default (EXPD-028).
+**What is deliberately not here.** Deleting a type, and scoring rules beyond
+the default (EXPD-028). Publishing and versioning are EXPD-031, below.
+
+### Publishing and versioning a mission type
+
+A type is written as a draft, checked against its student preview, published,
+and changed afterwards only as a new version (EXPD-031). Missions pin to a type
+by key and version, so a published type is never changed: a class keeps
+playing exactly what its author placed.
+
+| Endpoint                            | Permission           | What it does                                   |
+| ----------------------------------- | -------------------- | ---------------------------------------------- |
+| `POST /mission-types/:id/publish`   | `mission-type:write` | Freezes this organisation's draft.             |
+| `POST /mission-types/:id/versions`  | `mission-type:write` | `{ "version": "1.1.0" }`. A new draft, copied from a published type. |
+
+Rules the API holds:
+
+- Only this organisation's own draft is published. A second publish, a
+  platform type, or a published type saved over is `409`.
+- Publishing runs `validateAuthoredMissionType` again. A draft that fails is
+  refused (`422`), with every problem and its path.
+- A new version keeps the key, copies every other field, and starts as a
+  draft. Its version must be higher than every version of that key this
+  organisation or the platform holds (`409` otherwise). "Higher" compares the
+  numbers, so `1.10.0` is above `1.9.0`.
+- A key has one draft at a time. While `bird-count@1.1.0` is a draft, no other
+  version of `bird-count` is started (`409`). Only a published type starts a
+  new version; a draft is simply changed.
+- Publishing writes `mission-type.published`. A new version writes
+  `mission-type.created`, with the version it was copied from. Each is in the
+  same transaction as the change.
+
+**In the Studio**, under the builder's form:
+
+1. **A draft** has a **Publish** button. It waits until the form is saved and
+   has no problems, and asks once more before it publishes. The student
+   preview in the layout section is the preview to check first.
+2. **A published type** has **New version**, with the next minor version
+   filled in. When a draft of that key already exists, the builder says so and
+   opens it instead.
+3. **Versions of this key** lists every version with its status. Each one
+   opens.
+
+The version rules are in `packages/shared-types/src/mission-type/versioning.ts`
+(`compareMissionTypeVersions`, `highestMissionTypeVersion`,
+`nextMissionTypeVersion`), so the API and the Studio agree.
+
+| File                                          | What it holds                              |
+| --------------------------------------------- | ------------------------------------------ |
+| `apps/api/src/mission-types/mission-type-service.ts` | `publish` and `newVersion`.         |
+| `apps/studio/src/mission-types/lifecycle.ts`  | What the builder offers next. Pure functions. |
+| `apps/studio/src/mission-types/Builder.tsx`   | The Publish, New version and Versions sections. |
+| `apps/api/test/mission-types/publishing.test.ts` | 15 tests, over HTTP.                    |
+| `apps/studio/test/mission-type-versions.test.ts` | 8 tests.                                |
+
+**What is deliberately not here.**
+
+1. **Mission templates.** `mission_template` has a status column, but nothing
+   writes a template yet. Its data model is EXPD-060.
+2. **Deprecating or unpublishing a type.** `deprecated` is in the enum. What it
+   should do to expeditions already using the type is not decided.
+3. **A separate publish permission.** Publishing uses `mission-type:write`.
+   Expeditions have `expedition:publish`; types have no such permission yet.
+4. **Expeditions pinned to a draft type.** The graph editor still offers draft
+   types, and publishing an expedition does not check that its types are
+   published.
 
 ### The expedition graph editor
 

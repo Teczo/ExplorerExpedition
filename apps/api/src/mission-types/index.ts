@@ -1,10 +1,12 @@
 /**
- * Mission types, as the Studio's builder saves them (EXPD-025).
+ * Mission types, as the Studio's builder saves, publishes and versions them
+ * (EXPD-025, EXPD-031).
  *
  * Where to look:
  *
  *   `documents.ts`             Checking a type the Studio sent.
- *   `mission-type-service.ts`  The rules: drafts only, one key and version.
+ *   `mission-type-service.ts`  The rules: one key and version, drafts change,
+ *                              publishing freezes, a change is a new version.
  *   `views.ts`                 What the Studio reads.
  *   `routes.ts`                The endpoints, and the stack in front of them.
  */
