@@ -107,7 +107,8 @@ expedition graph editor beside it (EXPD-026), and the property panel that
 edits what is selected on that graph (EXPD-027), and the unlock conditions,
 routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
-and versioning a mission type (EXPD-031), all
+and versioning a mission type (EXPD-031), and the first mission type the
+platform ships as code, the QR hunt (EXPD-032), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -173,7 +174,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0008_media_library.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0009_qr_hunt_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -2836,6 +2837,64 @@ the library since is still listed, by id, with a warning.
    other kinds open in a new tab.
 6. **One organisation's library.** `organisation_id` is `NOT NULL`, so there
    is no platform-wide library. Templates (EXPD-060) use the organisation's.
+
+### The QR hunt mission type
+
+`qr-hunt@1.0.0` is the first mission type the platform ships as code
+(EXPD-032). Teams scan physical QR markers. The phone hands in every code it
+has scanned for the mission so far, and the type judges that list.
+
+```json
+{ "payload": { "scanned": ["LIB-01", "POND-02"] } }
+```
+
+The author picks one of three purposes in the mission's `config`:
+
+| `purpose`     | Done when                                                        | Partial progress |
+| ------------- | ---------------------------------------------------------------- | ---------------- |
+| `discovery`   | `foundToComplete` markers are found, in any order (default: all). | Yes              |
+| `progression` | Every marker is scanned in the listed order.                     | Yes              |
+| `validation`  | Any one listed marker is scanned. Proves the team got there.     | No               |
+
+```json
+{
+  "purpose": "progression",
+  "markers": [
+    { "code": "LIB-01", "label": "Library window" },
+    { "code": "POND-02", "label": "By the pond" }
+  ]
+}
+```
+
+Rules the type holds:
+
+- Codes are compared trimmed and without case, so a code typed in from the
+  sign still counts. Two markers that differ only in case are one marker.
+- In `progression`, a scan counts only when it is the next marker. A team that
+  skipped ahead can come back and finish.
+- `foundToComplete` is read only for `discovery`. A value above the number of
+  markers means all of them.
+- Feedback says how many markers are found, never which ones are left.
+
+Where it lives:
+
+| File                                                   | What it holds                                   |
+| ------------------------------------------------------ | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/qr-hunt.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`         | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/db/migrations/0009_qr_hunt_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/qr-hunt.test.ts`          | The three purposes, and what may be written and handed in. |
+| `apps/api/test/mission-types/qr-hunt-row.test.ts`      | The row in 0009 matches the code, field by field. |
+| `apps/api/test/play/qr-hunt.test.ts`                   | A QR hunt played through the API.               |
+
+**What is deliberately not here.**
+
+1. **The `qr_marker` table is not written.** It maps a printed code to one
+   marker across a whole organisation (`UNIQUE (organisation_id, code)`), so
+   the same code in two expeditions, or in two versions of one, would clash.
+   The mission's `config` holds its codes instead.
+2. **No scanning.** The camera and the scan screen are EXPD-043.
+3. **No printable markers.** Making the QR images is not in this ticket.
 
 ### Known gaps in `apps/student-mobile`
 
