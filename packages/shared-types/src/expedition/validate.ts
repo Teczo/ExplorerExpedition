@@ -1100,6 +1100,9 @@ function validateGraph(
         if (node['secret'] !== undefined) {
           readBoolean(ctx, `${nodePath}.secret`, node['secret'], false);
         }
+        if (node['boss'] !== undefined) {
+          readBoolean(ctx, `${nodePath}.boss`, node['boss'], false);
+        }
       }
 
       if (id !== undefined) {

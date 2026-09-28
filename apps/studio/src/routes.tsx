@@ -8,6 +8,7 @@
 
 import type { ComponentType } from 'react';
 
+import { ExpeditionsPage } from './pages/ExpeditionsPage.tsx';
 import { MissionTypesPage } from './pages/MissionTypesPage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 
@@ -20,6 +21,7 @@ interface Route {
 export const ROUTES: readonly Route[] = [
   { path: '/', label: 'Overview', page: OverviewPage },
   { path: '/mission-types', label: 'Mission types', page: MissionTypesPage },
+  { path: '/expeditions', label: 'Expedition graphs', page: ExpeditionsPage },
 ];
 
 /** What the side navigation lists, in order. */

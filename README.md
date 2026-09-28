@@ -102,7 +102,8 @@ photograph with and a teacher reads it back with (EXPD-021), and the
 leaderboards of a run and of an expedition (EXPD-022), and the realtime
 channel that tells a run's phones and its teacher what just changed
 (EXPD-023), and the Studio shell that only the Explorer team can open
-(EXPD-024), and the Mission Type Builder inside it (EXPD-025), all
+(EXPD-024), and the Mission Type Builder inside it (EXPD-025), and the
+expedition graph editor beside it (EXPD-026), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -136,6 +137,8 @@ added `optional` and `secret` to a mission node, `audience` to an edge, and
 `routes` to the expedition's rules. All four are optional fields, so a 1.0.0
 document is still a valid one and reads as an expedition with no routes where
 every mission blocks the way and none is hidden.
+1.2.0 added `boss` to a mission node for the graph editor (EXPD-026). It is a
+word for the author and has no effect on play.
 
 `validateExpeditionDefinition` checks the shape of a document and the way its
 parts point at each other: unknown ids, a mission no node uses, a graph with no
@@ -2536,6 +2539,67 @@ to `DEFAULT_MISSION_TYPE_AUTHORING`.
 
 **What is deliberately not here.** Publishing and versioning a type
 (EXPD-031), deleting one, and scoring rules beyond the default (EXPD-028).
+
+### The expedition graph editor
+
+The Studio's **Expedition graphs** screen lists this organisation's
+expeditions, creates one from a name (a start and a finish, nothing between),
+and opens one on a canvas. It opens the draft, or the newest published
+revision when there is no draft; saving that one starts the next draft, which
+is EXPD-017's rule.
+
+**What can be placed.** The schema has four node kinds. The palette offers
+seven things, built from them:
+
+| Palette            | What it writes                                                          |
+| ------------------ | ----------------------------------------------------------------------- |
+| Start              | A `start` node. Only one is allowed, so the button turns off.           |
+| Mission            | A `mission` node, and the mission it holds, from the chosen type's defaults. |
+| Secret mission     | The same, with `secret: true`.                                          |
+| Boss               | The same, with `boss: true` (schema 1.2.0). No effect on play.          |
+| Parallel stations  | A split checkpoint, 2 to 8 missions side by side, and a join after all of them. |
+| Branch             | A split checkpoint, two paths labelled "Path A" and "Path B", and a join. |
+| Checkpoint, Finish | One node of that kind.                                                  |
+
+With a node selected, what is added is joined after it, so a line of stops is
+laid down by clicking. Drag a node to move it (its place is `layout`). Drag
+from the dot on its right edge to another node to join them. Click a node or
+an edge to select it, and press Delete to remove it. Removing a mission node
+removes the mission it held.
+
+**What it refuses at once.** An edge to itself, into the start, out of a
+finish, a second edge between the same two nodes, and a loop. These are the
+schema's own rules, asked before the edge is drawn.
+
+**Problems as the author works.** The list under the canvas is
+`validateExpeditionDefinition`, the check the API runs. Graph and mission
+problems are listed and ringed in red on the canvas; clicking one selects the
+node. Problems outside the graph (rules, scoring, details) are folded away,
+because other screens own them. A draft may be saved with problems.
+
+**The selection bar** holds only what the graph needs: a node's name, secret
+and boss on a mission, and an edge's label.
+
+| File                              | What it holds                                   |
+| --------------------------------- | ----------------------------------------------- |
+| `src/expeditions/graph.ts`        | The graph as the editor holds it, and every change to it. Pure functions. |
+| `src/expeditions/GraphCanvas.tsx` | The SVG canvas and the pointer.                 |
+| `src/expeditions/GraphEditor.tsx` | Palette, canvas, problems and selection bar.    |
+| `src/expeditions/api.ts`          | The EXPD-017 calls the editor makes.            |
+| `src/pages/ExpeditionsPage.tsx`   | The list, and creating one.                     |
+| `test/expedition-graph.test.ts`   | 27 tests, with `node --test`.                   |
+
+**What is deliberately not here.**
+
+1. **A mission's own settings**: brief, instructions, config, scoring,
+   attempts, hints. A new mission starts from its type's defaults. That is
+   the property panel (EXPD-027).
+2. **Conditions and routes on an edge.** A branch's two paths open together
+   until one of them has a condition or a route. Those are EXPD-029. The
+   editor keeps them, and draws a gated edge dashed and amber.
+3. **Scoring rules** (EXPD-028), **publishing** (EXPD-031) and **undo**.
+4. **No diagram library.** It would be a dependency. The canvas is SVG and
+   pointer events.
 
 ### Known gaps in `apps/student-mobile`
 
