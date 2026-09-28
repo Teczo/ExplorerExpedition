@@ -161,6 +161,15 @@ export type ExpeditionNode =
        * visible from the start.
        */
       secret?: boolean;
+      /**
+       * Whether this is the expedition's boss mission: the big challenge the
+       * Studio draws apart from the rest (EXPD-026).
+       *
+       * It is a word for the author and has no effect on play. What makes a
+       * boss hard to reach is the graph in front of it, the same as for any
+       * other mission. Left out means the same as false.
+       */
+      boss?: boolean;
     })
   /**
    * A stop that holds no mission.

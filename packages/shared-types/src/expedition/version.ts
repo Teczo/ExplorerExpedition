@@ -36,8 +36,12 @@
  * `routes` an audience names on the expedition's rules. A 1.0.0 document is
  * still a valid 1.1.0 one, and reads as an expedition with no routes where
  * every mission blocks the way and none is hidden.
+ *
+ * 1.2.0 added `boss` on a mission node, for the Studio's graph editor
+ * (EXPD-026). It has no effect on play, and a 1.1.0 document is still a valid
+ * 1.2.0 one with no boss in it.
  */
-export const EXPEDITION_SCHEMA_VERSION = '1.1.0';
+export const EXPEDITION_SCHEMA_VERSION = '1.2.0';
 
 /**
  * The major versions this build can read.
