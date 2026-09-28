@@ -104,7 +104,8 @@ channel that tells a run's phones and its teacher what just changed
 (EXPD-023), and the Studio shell that only the Explorer team can open
 (EXPD-024), and the Mission Type Builder inside it (EXPD-025), and the
 expedition graph editor beside it (EXPD-026), and the property panel that
-edits what is selected on that graph (EXPD-027), all
+edits what is selected on that graph (EXPD-027), and the unlock conditions,
+routes and dependencies it sets on the graph's edges and stops (EXPD-029), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -2595,8 +2596,9 @@ selected. It is EXPD-027, described below.
 1. **A mission's own settings.** A new mission starts from its type's
    defaults. Changing them is the property panel (EXPD-027).
 2. **Conditions and routes on an edge.** A branch's two paths open together
-   until one of them has a condition or a route. Those are EXPD-029. The
-   editor keeps them, and draws a gated edge dashed and amber.
+   until one of them has a condition or a route. Setting those is the
+   property panel's (EXPD-029, below). The canvas draws a gated edge dashed
+   and amber, with what it waits on in a few words.
 3. **Scoring rules** (EXPD-028), **publishing** (EXPD-031) and **undo**.
 4. **No diagram library.** It would be a dependency. The canvas is SVG and
    pointer events.
@@ -2609,9 +2611,9 @@ in point 4.
 
 | Selected       | What the panel edits                                                    |
 | -------------- | ----------------------------------------------------------------------- |
-| Any node       | Its name on the canvas. Students do not see it.                         |
-| A mission node | Secret and boss, and the mission it holds (below).                      |
-| An edge        | Its label. A condition or a route on it is kept as it is (EXPD-029).    |
+| Any node       | Its name on the canvas, and what opens it (EXPD-029, below).            |
+| A mission node | Secret, boss and optional, and the mission it holds (below).            |
+| An edge        | Its label, its unlock condition and its routes (EXPD-029, below).       |
 
 For a mission, the panel edits:
 
@@ -2648,7 +2650,47 @@ written until it reads.
    `location` are kept as they are, and the panel says so.
 2. **Changing a mission's type.** The type and its version are pinned when
    the mission is placed. To change it, place a new mission.
-3. **Scoring rules** (EXPD-028) and **conditions on edges** (EXPD-029).
+3. **Scoring rules** (EXPD-028). Conditions on edges (EXPD-029) are
+   described in the next section.
+
+### Unlock conditions and dependencies
+
+Part of the property panel (EXPD-029). An author sets what opens a stop, and
+for whom, without writing JSON.
+
+**On an edge.** "Opens when" builds the edge's `condition` from the schema's
+nine types: mission finished, mission score at least, team total at least,
+some of these missions finished, time played at least, and the groups all of,
+any of and not. Groups hold other tests, and nest as deep as the schema allows
+(`MAX_UNLOCK_CONDITION_DEPTH`). Changing a test's type keeps the mission it
+named, and turning a test into a group puts the test inside it. A new test
+names the mission on the stop the edge leaves from. "None" and "always" both
+leave the field out. The condition is also shown in plain words.
+
+"Which teams" sets the edge's `audience`: every team, or only teams on ticked
+routes. The routes themselves (`rules.routes`) are added, renamed and removed
+in the same place. Removing a route takes it off every edge. An edge left for
+no route is kept that way, not opened to every team, and the check says so.
+
+**On a node.** "What opens it" lists every way in, and what each one waits
+on: the mission before it (unless that one is optional), the condition, and
+the routes. Any one open way in opens the stop, as the engine does
+(EXPD-013). For a mission, it also lists the conditions that name it. Each
+entry selects its edge. A mission node has an **Optional** box: an optional
+mission never holds a team up.
+
+Every field shows its own problems, from `validateExpeditionDefinition`. In a
+free-roam expedition the panel says that conditions are ignored in play.
+
+| File                               | What it holds                                  |
+| ---------------------------------- | ---------------------------------------------- |
+| `src/expeditions/unlock.ts`        | Every change to conditions, routes and optional. Pure functions. |
+| `src/expeditions/UnlockPanel.tsx`  | The condition editor, routes, and the dependency list. |
+| `test/unlock-conditions.test.ts`   | 16 tests, with `node --test`.                  |
+
+**What is deliberately not here.** Which route a team is on (EXPD-018 and
+the creator's screens), and whether the whole expedition can be finished
+(the simulation harness, EXPD-015, and AI validation, EXPD-066).
 
 ### Known gaps in `apps/student-mobile`
 

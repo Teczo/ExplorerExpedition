@@ -20,7 +20,7 @@
  *                      one where they meet again
  *
  * What makes one path of a branch open rather than the other is an edge's
- * condition or route. Editing those is EXPD-029; this file only keeps them.
+ * condition or route. Editing those is `unlock.ts` (EXPD-029).
  */
 
 import {
@@ -459,11 +459,11 @@ export function renameNode(state: GraphState, nodeId: string, title: string): Gr
   };
 }
 
-/** Turns `secret` or `boss` on or off. Off leaves the field out, as the schema reads it. */
+/** Turns `secret`, `boss` or `optional` on or off. Off leaves the field out, as the schema reads it. */
 export function setMissionFlag(
   state: GraphState,
   nodeId: string,
-  flag: 'secret' | 'boss',
+  flag: 'secret' | 'boss' | 'optional',
   on: boolean,
 ): GraphState {
   return {

@@ -3,7 +3,7 @@
  *
  * A palette across the top, the canvas with the property panel to its right
  * (EXPD-027), and the problems with the graph under them. The panel edits
- * whatever is selected; an edge's condition and route are EXPD-029's. The
+ * whatever is selected, an edge's condition and route included (EXPD-029). The
  * "Scoring rules" button swaps the panel for the expedition's bonuses and
  * penalties (EXPD-028).
  *
@@ -243,6 +243,7 @@ export function GraphEditor({
               missionTypes={missionTypes}
               onChange={change}
               onRemove={remove}
+              onSelectEdge={(id) => setSelection({ kind: 'edge', id })}
             />
           )}
         </div>

@@ -23,6 +23,7 @@ import {
   type NodeRole,
   type Point,
 } from './graph.ts';
+import { describeCondition } from './unlock.ts';
 
 /** What is selected on the canvas. */
 export type Selection =
@@ -162,6 +163,7 @@ export function GraphCanvas({
             <EdgeShape
               key={edge.id}
               edge={edge}
+              gate={gateOf(state, edge)}
               from={positionOf(from)}
               to={positionOf(to)}
               selected={selection?.kind === 'edge' && selection.id === edge.id}
@@ -253,6 +255,7 @@ function NodeShape({
 
 function EdgeShape({
   edge,
+  gate,
   from,
   to,
   selected,
@@ -260,6 +263,7 @@ function EdgeShape({
   onSelect,
 }: {
   edge: ExpeditionEdge;
+  gate: string;
   from: Point;
   to: Point;
   selected: boolean;
@@ -272,7 +276,7 @@ function EdgeShape({
   // An edge that only opens for some teams, or only once something holds, is
   // drawn dashed: it is one arm of a branch rather than a way everyone goes.
   const gated = edge.condition !== undefined || edge.audience !== undefined;
-  const words = [edge.label, gated ? gateOf(edge) : undefined].filter((word) => word !== undefined && word !== '');
+  const words = [edge.label, gated ? gate : undefined].filter((word) => word !== undefined && word !== '');
   const middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
   return (
     <g
@@ -292,6 +296,7 @@ function EdgeShape({
       />
       {words.length > 0 && (
         <text x={middle.x} y={middle.y - 6} textAnchor="middle" className="fill-slate-300 text-[11px]">
+          <title>{words.join(' · ')}</title>
           {clip(words.join(' · '), 28)}
         </text>
       )}
@@ -308,11 +313,17 @@ function detailOf(state: GraphState, node: ExpeditionNode): string {
   return mission === undefined ? 'no mission' : mission.missionTypeId;
 }
 
-function gateOf(edge: ExpeditionEdge): string {
+/** What an edge waits on, in a few words: its routes, then its condition. */
+function gateOf(state: GraphState, edge: ExpeditionEdge): string {
+  const words: string[] = [];
   if (edge.audience?.kind === 'routes') {
-    return `routes: ${edge.audience.routeIds.join(', ')}`;
+    words.push(`routes: ${edge.audience.routeIds.join(', ')}`);
   }
-  return edge.condition === undefined || edge.condition.type === 'always' ? '' : `when ${edge.condition.type}`;
+  if (edge.condition !== undefined && edge.condition.type !== 'always') {
+    const names = new Map(state.missions.map((mission) => [mission.id as string, mission.title]));
+    words.push(`when ${describeCondition(edge.condition, (id) => names.get(id) ?? id)}`);
+  }
+  return words.join(' · ');
 }
 
 function outPort(at: Point): Point {

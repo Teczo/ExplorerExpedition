@@ -6,7 +6,8 @@
  * is judged, scoring, attempts, time limit, hints, and the settings its type
  * asks for, drawn as a form from the type's config schema. Its bonuses and
  * penalties are the scoring screen's (EXPD-028), shown here for this mission.
- * For an edge, its label.
+ * For an edge, its label, and what opens it and for whom (EXPD-029). For a
+ * node, what opens it, and whether a mission is optional.
  *
  * Every input writes straight into the editor's state through the pure
  * functions in `properties.ts` and `graph.ts`, so the problems list and the
@@ -30,6 +31,7 @@ import { inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 import { missionOf, renameNode, roleOf, setEdgeLabel, setMissionFlag, type GraphState } from './graph.ts';
 import { Issues, NumberInput, Section } from './inputs.tsx';
 import { MissionRules } from './ScoringPanel.tsx';
+import { EdgeUnlock, NodeDependencies } from './UnlockPanel.tsx';
 import {
   addHint,
   hintsInOrder,
@@ -63,6 +65,7 @@ export function PropertyPanel({
   missionTypes,
   onChange,
   onRemove,
+  onSelectEdge,
 }: {
   state: GraphState;
   node: ExpeditionNode | undefined;
@@ -70,6 +73,7 @@ export function PropertyPanel({
   missionTypes: readonly MissionTypeView[];
   onChange: (next: GraphState) => void;
   onRemove: () => void;
+  onSelectEdge: (edgeId: string) => void;
 }) {
   return (
     <aside className="rounded-lg border border-slate-800 p-4 text-sm" aria-label="Properties">
@@ -84,10 +88,12 @@ export function PropertyPanel({
           missionTypes={missionTypes}
           onChange={onChange}
           onRemove={onRemove}
+          onSelectEdge={onSelectEdge}
         />
       )}
       {edge !== undefined && (
-        <div className="mt-2 space-y-2">
+        // A new edge starts the inputs afresh, as a new node does.
+        <div key={edge.id} className="mt-2 space-y-3">
           <label className="block text-xs text-slate-400">
             Label on the edge
             <input
@@ -96,9 +102,7 @@ export function PropertyPanel({
               onChange={(event) => onChange(setEdgeLabel(state, edge.id, event.target.value))}
             />
           </label>
-          {(edge.condition !== undefined || edge.audience !== undefined) && (
-            <p className="text-xs text-amber-300">This edge has a condition or a route. They are kept as they are.</p>
-          )}
+          <EdgeUnlock state={state} edge={edge} onChange={onChange} />
           <button type="button" className={secondaryButtonClass} onClick={onRemove}>
             Remove edge
           </button>
@@ -117,12 +121,14 @@ function NodeProperties({
   missionTypes,
   onChange,
   onRemove,
+  onSelectEdge,
 }: {
   state: GraphState;
   node: ExpeditionNode;
   missionTypes: readonly MissionTypeView[];
   onChange: (next: GraphState) => void;
   onRemove: () => void;
+  onSelectEdge: (edgeId: string) => void;
 }) {
   const mission = missionOf(state, node);
   return (
@@ -139,7 +145,7 @@ function NodeProperties({
         />
       </label>
       {node.kind === 'mission' && (
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
           <label className="flex items-center gap-1">
             <input
               type="checkbox"
@@ -156,8 +162,19 @@ function NodeProperties({
             />
             Boss
           </label>
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={node.optional === true}
+              onChange={(event) => onChange(setMissionFlag(state, node.id, 'optional', event.target.checked))}
+            />
+            Optional — never holds a team up
+          </label>
         </div>
       )}
+      <Section title="What opens it">
+        <NodeDependencies state={state} node={node} onSelectEdge={onSelectEdge} />
+      </Section>
       {node.kind === 'mission' && mission === undefined && (
         <p className="text-xs text-red-300">
           This node points at mission <span className="font-mono">{node.missionInstanceId}</span>, which is not in
