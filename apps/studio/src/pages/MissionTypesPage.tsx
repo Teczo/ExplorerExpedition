@@ -1,5 +1,6 @@
 /**
- * Mission types: the list, and the builder (EXPD-025).
+ * Mission types: the list, and the builder (EXPD-025). Publishing and new
+ * versions happen in the builder (EXPD-031).
  *
  * The router matches whole paths only (EXPD-024), so opening one type is a
  * state of this page rather than a path of its own.
@@ -41,11 +42,13 @@ export function MissionTypesPage() {
       <Builder
         key={open.type?.id ?? 'new'}
         existing={open.type}
+        types={types ?? []}
         api={api}
         onSaved={(saved) => {
           setOpen({ kind: 'type', type: saved });
           void load();
         }}
+        onOpen={(type) => setOpen({ kind: 'type', type })}
         onClose={() => setOpen({ kind: 'list' })}
       />
     );
@@ -61,6 +64,7 @@ export function MissionTypesPage() {
       </div>
       <p className="mt-2 text-slate-300">
         The kinds of task an expedition is built from. A type built here is saved as a draft of this organisation.
+        Publishing freezes it; a later change is a new version.
       </p>
 
       {error !== null && <ErrorNote>{error}</ErrorNote>}

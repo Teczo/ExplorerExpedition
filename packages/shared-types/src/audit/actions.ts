@@ -61,6 +61,8 @@ export const ADMINISTRATIVE_AUDIT_ACTIONS = [
   'expedition.deleted',
   'mission-type.created',
   'mission-type.updated',
+  /** A draft type was frozen, so missions may pin to it (EXPD-031). */
+  'mission-type.published',
   'mission-type.deleted',
 
   // --- Running a class (EXPD-019, EXPD-055, EXPD-058) ---
@@ -173,6 +175,7 @@ export const AUDIT_ENTITY_TYPE_BY_ACTION: Readonly<
   'expedition.deleted': 'expedition',
   'mission-type.created': 'mission_type',
   'mission-type.updated': 'mission_type',
+  'mission-type.published': 'mission_type',
   'mission-type.deleted': 'mission_type',
 
   'session.scheduled': 'expedition_session',

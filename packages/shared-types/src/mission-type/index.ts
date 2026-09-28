@@ -19,6 +19,8 @@
  *   `definition.ts`       What one mission type is, and checking one.
  *   `authoring.ts`        What the Studio's builder adds: validation method,
  *                         default scoring and the student layout (EXPD-025).
+ *   `versioning.ts`       Which version of a type is higher, and the next
+ *                         one (EXPD-031).
  */
 
 export * from './capabilities.ts';
@@ -27,3 +29,4 @@ export * from './config-schema.ts';
 export * from './validate-config.ts';
 export * from './definition.ts';
 export * from './authoring.ts';
+export * from './versioning.ts';
