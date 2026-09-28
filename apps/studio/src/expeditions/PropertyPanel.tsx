@@ -4,8 +4,9 @@
  * It edits whatever is selected on the canvas. For every node, its name. For
  * a mission node, also the mission it holds: the words students see, how it
  * is judged, scoring, attempts, time limit, hints, and the settings its type
- * asks for, drawn as a form from the type's config schema. For an edge, its
- * label.
+ * asks for, drawn as a form from the type's config schema. Its bonuses and
+ * penalties are the scoring screen's (EXPD-028), shown here for this mission.
+ * For an edge, its label.
  *
  * Every input writes straight into the editor's state through the pure
  * functions in `properties.ts` and `graph.ts`, so the problems list and the
@@ -13,7 +14,7 @@
  * in its input and not written, with the reason under it.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import {
   VERIFICATION_MODES,
   type ExpeditionEdge,
@@ -27,6 +28,8 @@ import type { MissionTypeView } from '../mission-types/api.ts';
 import { fieldsFromSchema, type FieldDraft } from '../mission-types/fields.ts';
 import { inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 import { missionOf, renameNode, roleOf, setEdgeLabel, setMissionFlag, type GraphState } from './graph.ts';
+import { Issues, NumberInput, Section } from './inputs.tsx';
+import { MissionRules } from './ScoringPanel.tsx';
 import {
   addHint,
   hintsInOrder,
@@ -34,7 +37,6 @@ import {
   issuesOfMission,
   moveHint,
   readConfigJson,
-  readNumber,
   removeHint,
   setAttempts,
   setConfig,
@@ -282,6 +284,10 @@ function MissionProperties({
           Partial credit — a partly right answer earns part of the points
         </label>
         <Issues issues={issuesAt(issues, 'scoring')} />
+      </Section>
+
+      <Section title="Bonuses and penalties">
+        <MissionRules state={state} missionId={id} onChange={onChange} />
       </Section>
 
       <Section title="Attempts and time">
@@ -555,65 +561,3 @@ function ConfigJson({
   );
 }
 
-/**
- * A number input that keeps what was typed. Only a number that reads is
- * passed on; otherwise the reason is shown and the mission is left alone.
- */
-function NumberInput({
-  label,
-  help,
-  initial,
-  rules,
-  onValue,
-}: {
-  label: string;
-  help?: ReactNode;
-  initial: number | undefined;
-  rules: Parameters<typeof readNumber>[1];
-  onValue: (value: number | undefined) => void;
-}) {
-  const [text, setText] = useState(initial === undefined ? '' : String(initial));
-  const [problem, setProblem] = useState<string | null>(null);
-  return (
-    <label className="block text-xs text-slate-400">
-      {label}
-      {help}
-      <input
-        className={inputClass}
-        inputMode="decimal"
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value);
-          const read = readNumber(event.target.value, rules);
-          setProblem(read.ok ? null : read.message);
-          if (read.ok) onValue(read.value);
-        }}
-      />
-      {problem !== null && <span className="mt-1 block text-amber-300">{problem} Not applied yet.</span>}
-    </label>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <fieldset className="space-y-2 border-t border-slate-800 pt-3">
-      <legend className="pr-2 text-xs font-semibold tracking-wide text-slate-300 uppercase">{title}</legend>
-      {children}
-    </fieldset>
-  );
-}
-
-function Issues({ issues }: { issues: readonly PropertyIssue[] }) {
-  if (issues.length === 0) {
-    return null;
-  }
-  return (
-    <ul className="space-y-0.5 text-xs text-red-300">
-      {issues.map((issue, index) => (
-        <li key={`${issue.path}-${index}`}>
-          {issue.path !== '' && <span className="font-mono text-red-400">{issue.path}</span>} {issue.message}
-        </li>
-      ))}
-    </ul>
-  );
-}

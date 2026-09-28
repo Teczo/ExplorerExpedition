@@ -3,7 +3,9 @@
  *
  * A palette across the top, the canvas with the property panel to its right
  * (EXPD-027), and the problems with the graph under them. The panel edits
- * whatever is selected; an edge's condition and route are EXPD-029's.
+ * whatever is selected; an edge's condition and route are EXPD-029's. The
+ * "Scoring rules" button swaps the panel for the expedition's bonuses and
+ * penalties (EXPD-028).
  *
  * A draft may be saved unfinished (EXPD-017). The problems list is the same
  * check the API runs, as the author works.
@@ -16,6 +18,7 @@ import { ErrorNote, inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 import type { ExpeditionApi, ExpeditionDocumentView, ExpeditionView } from './api.ts';
 import { GraphCanvas, type Selection } from './GraphCanvas.tsx';
 import { PropertyPanel } from './PropertyPanel.tsx';
+import { ScoringPanel } from './ScoringPanel.tsx';
 import {
   addBranch,
   addNode,
@@ -53,6 +56,8 @@ export function GraphEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** The expedition's scoring rules (EXPD-028) take the property panel's place while open. */
+  const [showScoring, setShowScoring] = useState(false);
 
   const issues = useMemo(() => issuesOf(state), [state]);
   const flagged = useMemo(
@@ -124,6 +129,14 @@ export function GraphEditor({
         <div className="flex items-center gap-2">
           <button type="button" className={secondaryButtonClass} onClick={onClose}>
             Back to list
+          </button>
+          <button
+            type="button"
+            className={secondaryButtonClass}
+            aria-pressed={showScoring}
+            onClick={() => setShowScoring(!showScoring)}
+          >
+            Scoring rules
           </button>
           <button
             type="button"
@@ -204,7 +217,10 @@ export function GraphEditor({
           state={state}
           selection={selection}
           flagged={flagged}
-          onSelect={setSelection}
+          onSelect={(next) => {
+            setSelection(next);
+            if (next !== null) setShowScoring(false);
+          }}
           onMove={(nodeId, to) => change(moveNode(state, nodeId, to))}
           onConnect={(from, to) => {
             const result = connect(state, from, to);
@@ -217,14 +233,18 @@ export function GraphEditor({
           onDelete={remove}
         />
         <div className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-          <PropertyPanel
-            state={state}
-            node={selectedNode}
-            edge={selectedEdge}
-            missionTypes={missionTypes}
-            onChange={change}
-            onRemove={remove}
-          />
+          {showScoring ? (
+            <ScoringPanel state={state} onChange={change} onClose={() => setShowScoring(false)} />
+          ) : (
+            <PropertyPanel
+              state={state}
+              node={selectedNode}
+              edge={selectedEdge}
+              missionTypes={missionTypes}
+              onChange={change}
+              onRemove={remove}
+            />
+          )}
         </div>
       </div>
 
