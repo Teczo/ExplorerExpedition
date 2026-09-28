@@ -7,7 +7,8 @@
  * asks for, drawn as a form from the type's config schema. Its bonuses and
  * penalties are the scoring screen's (EXPD-028), shown here for this mission.
  * For an edge, its label, and what opens it and for whom (EXPD-029). For a
- * node, what opens it, and whether a mission is optional.
+ * node, what opens it, and whether a mission is optional. For a mission, the
+ * files from the media library shown with it (EXPD-030).
  *
  * Every input writes straight into the editor's state through the pure
  * functions in `properties.ts` and `graph.ts`, so the problems list and the
@@ -32,17 +33,22 @@ import { missionOf, renameNode, roleOf, setEdgeLabel, setMissionFlag, type Graph
 import { Issues, NumberInput, Section } from './inputs.tsx';
 import { MissionRules } from './ScoringPanel.tsx';
 import { EdgeUnlock, NodeDependencies } from './UnlockPanel.tsx';
+import { KIND_LABELS, placeable, type LibraryItem } from '../media/library.ts';
 import {
   addHint,
+  addMedia,
   hintsInOrder,
   issuesAt,
   issuesOfMission,
   moveHint,
+  moveMedia,
   readConfigJson,
   removeHint,
+  removeMedia,
   setAttempts,
   setConfig,
   setConfigValue,
+  setMediaAltText,
   setMissionText,
   setScoring,
   setTimeLimit,
@@ -63,6 +69,7 @@ export function PropertyPanel({
   node,
   edge,
   missionTypes,
+  library,
   onChange,
   onRemove,
   onSelectEdge,
@@ -71,6 +78,8 @@ export function PropertyPanel({
   node: ExpeditionNode | undefined;
   edge: ExpeditionEdge | undefined;
   missionTypes: readonly MissionTypeView[];
+  /** The organisation's media library (EXPD-030). */
+  library: readonly LibraryItem[];
   onChange: (next: GraphState) => void;
   onRemove: () => void;
   onSelectEdge: (edgeId: string) => void;
@@ -86,6 +95,7 @@ export function PropertyPanel({
           state={state}
           node={node}
           missionTypes={missionTypes}
+          library={library}
           onChange={onChange}
           onRemove={onRemove}
           onSelectEdge={onSelectEdge}
@@ -119,6 +129,7 @@ function NodeProperties({
   state,
   node,
   missionTypes,
+  library,
   onChange,
   onRemove,
   onSelectEdge,
@@ -126,6 +137,7 @@ function NodeProperties({
   state: GraphState;
   node: ExpeditionNode;
   missionTypes: readonly MissionTypeView[];
+  library: readonly LibraryItem[];
   onChange: (next: GraphState) => void;
   onRemove: () => void;
   onSelectEdge: (edgeId: string) => void;
@@ -182,7 +194,13 @@ function NodeProperties({
         </p>
       )}
       {mission !== undefined && (
-        <MissionProperties state={state} mission={mission} missionTypes={missionTypes} onChange={onChange} />
+        <MissionProperties
+          state={state}
+          mission={mission}
+          missionTypes={missionTypes}
+          library={library}
+          onChange={onChange}
+        />
       )}
       <button type="button" className={secondaryButtonClass} onClick={onRemove}>
         Remove node
@@ -195,11 +213,13 @@ function MissionProperties({
   state,
   mission,
   missionTypes,
+  library,
   onChange,
 }: {
   state: GraphState;
   mission: MissionInstance;
   missionTypes: readonly MissionTypeView[];
+  library: readonly LibraryItem[];
   onChange: (next: GraphState) => void;
 }) {
   const type = typeOf(missionTypes, mission);
@@ -335,14 +355,134 @@ function MissionProperties({
         <HintList state={state} mission={mission} issues={issuesAt(issues, 'hints')} onChange={onChange} />
       </Section>
 
-      {(mission.media.length > 0 || mission.location !== undefined) && (
-        <p className="text-xs text-slate-500">
-          {mission.media.length > 0 && `${mission.media.length} media item(s)`}
-          {mission.media.length > 0 && mission.location !== undefined && ' and '}
-          {mission.location !== undefined && 'a location'} are kept as they are. Other screens edit them.
-        </p>
+      <Section title={`Media (${mission.media.length})`}>
+        <MediaList
+          state={state}
+          mission={mission}
+          library={library}
+          issues={issuesAt(issues, 'media')}
+          onChange={onChange}
+        />
+      </Section>
+
+      {mission.location !== undefined && (
+        <p className="text-xs text-slate-500">A location is kept as it is. Another screen edits it.</p>
       )}
     </>
+  );
+}
+
+/**
+ * The files shown with a mission, picked from the media library (EXPD-030).
+ * A file removed from the library since is still listed, by its id, so the
+ * author can see it and take it off.
+ */
+function MediaList({
+  state,
+  mission,
+  library,
+  issues,
+  onChange,
+}: {
+  state: GraphState;
+  mission: MissionInstance;
+  library: readonly LibraryItem[];
+  issues: readonly PropertyIssue[];
+  onChange: (next: GraphState) => void;
+}) {
+  const id = mission.id;
+  const choices = placeable(library).filter((file) => !mission.media.some((ref) => ref.mediaId === file.id));
+  const [choice, setChoice] = useState('');
+  const chosen = choices.find((file) => file.id === choice) ?? choices[0];
+
+  return (
+    <div className="space-y-2">
+      {mission.media.length === 0 && <p className="text-xs text-slate-500">No media on this mission.</p>}
+      <ol className="space-y-2">
+        {mission.media.map((ref, index) => {
+          const file = library.find((candidate) => candidate.id === ref.mediaId);
+          return (
+            <li key={ref.mediaId} className="rounded-md border border-slate-800 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate">
+                  {file?.name ?? <span className="font-mono text-xs">{ref.mediaId}</span>}{' '}
+                  <span className="text-xs text-slate-500">{KIND_LABELS[ref.kind]}</span>
+                </span>
+                <span className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    aria-label="Move up"
+                    disabled={index === 0}
+                    onClick={() => onChange(moveMedia(state, id, ref.mediaId, -1))}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    aria-label="Move down"
+                    disabled={index === mission.media.length - 1}
+                    onClick={() => onChange(moveMedia(state, id, ref.mediaId, 1))}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryButtonClass}
+                    onClick={() => onChange(removeMedia(state, id, ref.mediaId))}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </div>
+              {file === undefined && (
+                <p className="mt-1 text-xs text-amber-300">This file is not in the library any more.</p>
+              )}
+              <label className="mt-1 block text-xs text-slate-400">
+                Alt text on this mission
+                <input
+                  className={inputClass}
+                  value={ref.altText ?? ''}
+                  onChange={(event) => onChange(setMediaAltText(state, id, ref.mediaId, event.target.value))}
+                />
+              </label>
+              <Issues issues={issuesAt(issues, `media[${index}]`)} />
+            </li>
+          );
+        })}
+      </ol>
+      {choices.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          {placeable(library).length === 0
+            ? 'The media library has no ready files. Add some on the Media library screen.'
+            : 'Every ready file in the library is already on this mission.'}
+        </p>
+      ) : (
+        <div className="flex items-end gap-2">
+          <label className="block flex-1 text-xs text-slate-400">
+            Add from the library
+            <select className={inputClass} value={chosen?.id ?? ''} onChange={(event) => setChoice(event.target.value)}>
+              {choices.map((file) => (
+                <option key={file.id} value={file.id}>
+                  {file.name} ({KIND_LABELS[file.kind]})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className={secondaryButtonClass}
+            disabled={chosen === undefined}
+            onClick={() => {
+              if (chosen !== undefined) onChange(addMedia(state, id, chosen));
+            }}
+          >
+            Add
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 

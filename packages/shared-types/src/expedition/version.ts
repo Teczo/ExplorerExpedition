@@ -40,8 +40,13 @@
  * 1.2.0 added `boss` on a mission node, for the Studio's graph editor
  * (EXPD-026). It has no effect on play, and a 1.1.0 document is still a valid
  * 1.2.0 one with no boss in it.
+ *
+ * 1.3.0 added `model` to the kinds a `MediaRef` may name, for 3D files in the
+ * media library (EXPD-030). A 1.2.0 document is still a valid 1.3.0 one; a
+ * 1.2.0 reader turns a 1.3.0 document away, because it could hold a kind that
+ * reader cannot show.
  */
-export const EXPEDITION_SCHEMA_VERSION = '1.2.0';
+export const EXPEDITION_SCHEMA_VERSION = '1.3.0';
 
 /**
  * The major versions this build can read.

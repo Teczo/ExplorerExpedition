@@ -510,8 +510,8 @@ export interface HintRequestRow {
   readonly opened_at: Date;
 }
 
-/** What a `media_asset` is. Matches the enum in 0001. */
-export type MediaKind = 'image' | 'audio' | 'video' | 'document';
+/** What a `media_asset` is. Matches the enum in 0001, with `model` from 0008. */
+export type MediaKind = 'image' | 'audio' | 'video' | 'document' | 'model';
 
 /** Whether its file has arrived. Matches the enum in 0001. */
 export type MediaStatus = 'pending' | 'ready' | 'failed' | 'deleted';
@@ -532,4 +532,17 @@ export interface MediaAssetRow {
   readonly uploaded_by: string | null;
   readonly uploaded_by_participant: string | null;
   readonly created_at: Date;
+}
+
+/**
+ * A row of `media_asset` that is in the media library (EXPD-030, 0008).
+ *
+ * `byte_size` is a `bigint`, which the driver hands over as text.
+ */
+export interface LibraryMediaRow extends MediaAssetRow {
+  readonly in_library: boolean;
+  readonly name: string;
+  readonly alt_text: string | null;
+  readonly byte_size: string | number | null;
+  readonly updated_at: Date;
 }

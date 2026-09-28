@@ -78,6 +78,12 @@ export const PERMISSIONS = [
   'media:read',
   /** Ask for a signed upload URL. */
   'media:write',
+  /**
+   * Add, rename and remove files in the organisation's media library
+   * (EXPD-030). Apart from `media:write`, because a phone holds that one and
+   * must not be able to touch what authors have placed on missions.
+   */
+  'media:library',
 
   // --- The record (EXPD-006) ---
   /** Read the organisation's audit log. */
@@ -118,6 +124,7 @@ const CREATOR_PERMISSIONS = [
   'submission:review',
   'media:read',
   'media:write',
+  'media:library',
 ] as const satisfies readonly Permission[];
 
 /**

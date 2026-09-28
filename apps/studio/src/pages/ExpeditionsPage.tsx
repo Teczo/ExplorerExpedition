@@ -12,6 +12,7 @@ import { ApiError } from '../auth/api-client.ts';
 import { useSession } from '../auth/AuthProvider.tsx';
 import { expeditionApi, type ExpeditionDocumentView, type ExpeditionView } from '../expeditions/api.ts';
 import { GraphEditor } from '../expeditions/GraphEditor.tsx';
+import { mediaLibraryApi, type LibraryItem } from '../media/library.ts';
 import { missionTypeApi, type MissionTypeView } from '../mission-types/api.ts';
 import { ErrorNote, inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 
@@ -27,9 +28,11 @@ export function ExpeditionsPage() {
   );
   const api = useMemo(() => expeditionApi(request), [request]);
   const types = useMemo(() => missionTypeApi(request), [request]);
+  const media = useMemo(() => mediaLibraryApi(request), [request]);
 
   const [expeditions, setExpeditions] = useState<readonly ExpeditionView[] | null>(null);
   const [missionTypes, setMissionTypes] = useState<readonly MissionTypeView[]>([]);
+  const [library, setLibrary] = useState<readonly LibraryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Open>({ kind: 'list' });
   const [title, setTitle] = useState('');
@@ -38,13 +41,14 @@ export function ExpeditionsPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [list, typeList] = await Promise.all([api.list(), types.list()]);
+      const [list, typeList, files] = await Promise.all([api.list(), types.list(), media.list()]);
       setExpeditions(list);
       setMissionTypes(typeList);
+      setLibrary(files);
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'The expeditions could not be read.');
     }
-  }, [api, types]);
+  }, [api, types, media]);
 
   useEffect(() => {
     void load();
@@ -93,6 +97,7 @@ export function ExpeditionsPage() {
         expedition={open.expedition}
         opened={open.opened}
         missionTypes={missionTypes}
+        library={library}
         api={api}
         onClose={() => {
           setOpen({ kind: 'list' });
