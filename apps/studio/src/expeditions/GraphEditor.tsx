@@ -13,6 +13,7 @@
 
 import { useMemo, useState } from 'react';
 import { ApiError } from '../auth/api-client.ts';
+import type { LibraryItem } from '../media/library.ts';
 import type { MissionTypeView } from '../mission-types/api.ts';
 import { ErrorNote, inputClass, secondaryButtonClass } from '../shell/ui.tsx';
 import type { ExpeditionApi, ExpeditionDocumentView, ExpeditionView } from './api.ts';
@@ -38,12 +39,15 @@ export function GraphEditor({
   expedition,
   opened,
   missionTypes,
+  library,
   api,
   onClose,
 }: {
   expedition: ExpeditionView;
   opened: ExpeditionDocumentView;
   missionTypes: readonly MissionTypeView[];
+  /** The organisation's media library, for the property panel (EXPD-030). */
+  library: readonly LibraryItem[];
   api: ExpeditionApi;
   onClose: () => void;
 }) {
@@ -241,6 +245,7 @@ export function GraphEditor({
               node={selectedNode}
               edge={selectedEdge}
               missionTypes={missionTypes}
+              library={library}
               onChange={change}
               onRemove={remove}
               onSelectEdge={(id) => setSelection({ kind: 'edge', id })}

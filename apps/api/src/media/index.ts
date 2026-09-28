@@ -13,6 +13,8 @@
  *   `media-service.ts`     The `media_asset` row an upload writes, and the checks
  *                          in front of a download.
  *   `routes.ts`            The endpoints, and the stack in front of them.
+ *   `library-service.ts`   The media library (EXPD-030): list, add, rename, remove.
+ *   `library-routes.ts`    Its endpoints, under `/media/library`.
  */
 
 export * from './blob-sas.ts';
@@ -20,3 +22,5 @@ export * from './delegation-key.ts';
 export * from './media-storage.ts';
 export * from './media-service.ts';
 export * from './routes.ts';
+export * from './library-service.ts';
+export * from './library-routes.ts';

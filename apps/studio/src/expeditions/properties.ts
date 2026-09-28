@@ -10,8 +10,9 @@
  * Every change is a pure function from one `GraphState` to the next, the
  * same as `graph.ts`, so the tests hold it to account without a browser.
  *
- * Kept as they are, not edited here: `media` (the asset library, EXPD-030)
- * and `location` (navigation and location, EXPD-039).
+ * `media` is placed from the media library (EXPD-030): files are added,
+ * ordered, given alt text and taken off here. Kept as it is, not edited here:
+ * `location` (navigation and location, EXPD-039).
  */
 
 import {
@@ -22,6 +23,7 @@ import {
   type HintDefinition,
   type JsonObject,
   type JsonValue,
+  type MediaRef,
   type MissionInstance,
   type MissionScoring,
   type VerificationMode,
@@ -166,6 +168,69 @@ export function moveHint(state: GraphState, missionId: string, hintId: string, s
       }),
     };
   });
+}
+
+// --- Media from the library (EXPD-030) --------------------------------------
+
+/**
+ * Puts a library file on a mission, after the ones already there. A file is
+ * placed once: adding it again changes nothing.
+ */
+export function addMedia(
+  state: GraphState,
+  missionId: string,
+  file: { readonly id: string; readonly kind: MediaRef['kind']; readonly altText: string | null },
+): GraphState {
+  return updateMission(state, missionId, (mission) => {
+    if (mission.media.some((ref) => ref.mediaId === file.id)) {
+      return mission;
+    }
+    const ref: MediaRef = {
+      mediaId: file.id as MediaRef['mediaId'],
+      kind: file.kind,
+      ...(file.altText === null || file.altText.trim() === '' ? {} : { altText: file.altText }),
+    };
+    return { ...mission, media: [...mission.media, ref] };
+  });
+}
+
+/** Takes a file off a mission. The file stays in the library. */
+export function removeMedia(state: GraphState, missionId: string, mediaId: string): GraphState {
+  return updateMission(state, missionId, (mission) => ({
+    ...mission,
+    media: mission.media.filter((ref) => ref.mediaId !== mediaId),
+  }));
+}
+
+/** Moves a file one place up or down. The student app shows them in this order. */
+export function moveMedia(state: GraphState, missionId: string, mediaId: string, step: -1 | 1): GraphState {
+  return updateMission(state, missionId, (mission) => {
+    const at = mission.media.findIndex((ref) => ref.mediaId === mediaId);
+    const self = mission.media[at];
+    const other = mission.media[at + step];
+    if (self === undefined || other === undefined) {
+      return mission;
+    }
+    const media = [...mission.media];
+    media[at] = other;
+    media[at + step] = self;
+    return { ...mission, media };
+  });
+}
+
+/**
+ * The words a screen reader says for the file on this mission. Empty takes
+ * them out, so nothing is read rather than an empty string.
+ */
+export function setMediaAltText(state: GraphState, missionId: string, mediaId: string, text: string): GraphState {
+  return updateMission(state, missionId, (mission) => ({
+    ...mission,
+    media: mission.media.map((ref) => {
+      if (ref.mediaId !== mediaId) return ref;
+      const { altText: _dropped, ...rest } = ref;
+      return text === '' ? rest : { ...rest, altText: text };
+    }),
+  }));
 }
 
 // --- The type's own settings ------------------------------------------------

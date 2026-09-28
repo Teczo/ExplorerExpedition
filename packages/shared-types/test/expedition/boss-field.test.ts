@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 
 import {
   EXPEDITION_SCHEMA_VERSION,
+  isReadableSchemaVersion,
   validateExpeditionDefinition,
   type ValidationIssue,
 } from '../../src/index.ts';
@@ -94,8 +95,9 @@ function issuesOf(document: Record<string, unknown>): ValidationIssue[] {
 }
 
 describe('a boss mission', () => {
-  it('is written at 1.2.0', () => {
-    assert.equal(EXPEDITION_SCHEMA_VERSION, '1.2.0');
+  it('came in at 1.2.0, which is still read', () => {
+    assert.ok(isReadableSchemaVersion('1.2.0'));
+    assert.notEqual(EXPEDITION_SCHEMA_VERSION, '1.1.0');
   });
 
   it('takes boss on a mission stop, beside secret and optional', () => {

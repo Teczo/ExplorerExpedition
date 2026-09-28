@@ -149,14 +149,19 @@ export class MediaService {
   }
 
   #requireStorage(): MediaStorage {
-    if (this.#storage === undefined) {
-      throw new ApiError('service-unavailable', {
-        message: 'Media storage is not set up on this server.',
-        detail: 'createApp was given no media storage, and AZURE_STORAGE_ACCOUNT is not set.',
-      });
-    }
-    return this.#storage;
+    return requireStorage(this.#storage);
   }
+}
+
+/** The storage, or the 503 that says there is none. */
+export function requireStorage(storage: MediaStorage | undefined): MediaStorage {
+  if (storage === undefined) {
+    throw new ApiError('service-unavailable', {
+      message: 'Media storage is not set up on this server.',
+      detail: 'createApp was given no media storage, and AZURE_STORAGE_ACCOUNT is not set.',
+    });
+  }
+  return storage;
 }
 
 /** The row as a client reads it. The container and path stay on the server. */
@@ -170,9 +175,14 @@ export function mediaView(row: MediaAssetRow): MediaView {
 }
 
 /** Signs, and turns Azure refusing into the API's 503. */
-async function sign(signer: () => Promise<SignedUrl>): Promise<SignedUrl> {
+export async function sign(signer: () => Promise<SignedUrl>): Promise<SignedUrl> {
+  return askStorage(signer);
+}
+
+/** Asks storage something, and turns Azure refusing into the API's 503. */
+export async function askStorage<T>(ask: () => Promise<T>): Promise<T> {
   try {
-    return await signer();
+    return await ask();
   } catch (error) {
     if (error instanceof StorageSigningError) {
       throw new ApiError('service-unavailable', {

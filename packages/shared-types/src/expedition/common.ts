@@ -101,7 +101,8 @@ export interface IntRange {
  */
 export interface MediaRef {
   mediaId: MediaId;
-  kind: 'image' | 'audio' | 'video' | 'document';
+  /** `model` is a 3D model: `.glb`, `.gltf` or `.usdz` (schema 1.3.0). */
+  kind: 'image' | 'audio' | 'video' | 'document' | 'model';
   /** Text read aloud by a screen reader in place of the file. */
   altText?: string;
 }
@@ -126,7 +127,7 @@ export interface LocationConstraint {
 }
 
 /** Every media kind, matching `MediaRef['kind']`. */
-export const MEDIA_KINDS = ['image', 'audio', 'video', 'document'] as const;
+export const MEDIA_KINDS = ['image', 'audio', 'video', 'document', 'model'] as const;
 
 /** Every poor-accuracy action, matching `LocationConstraint['onPoorAccuracy']`. */
 export const POOR_ACCURACY_ACTIONS = ['block', 'warn', 'ignore'] as const;

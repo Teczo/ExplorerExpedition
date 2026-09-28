@@ -23,6 +23,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_eve
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0005_session_lifecycle.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0006_mission_play.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0007_mission_type_builder.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0008_media_library.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails

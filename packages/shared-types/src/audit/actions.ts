@@ -80,6 +80,10 @@ export const ADMINISTRATIVE_AUDIT_ACTIONS = [
   'submission.rejected',
 
   // --- Files (EXPD-021, EXPD-030) ---
+  /** A file arrived in the media library. */
+  'media.added',
+  /** A library file was renamed, or its alt text changed. */
+  'media.updated',
   'media.deleted',
 
   // --- Signing in, and being stopped from signing in ---
@@ -184,6 +188,8 @@ export const AUDIT_ENTITY_TYPE_BY_ACTION: Readonly<
   'submission.accepted': 'submission',
   'submission.rejected': 'submission',
 
+  'media.added': 'media_asset',
+  'media.updated': 'media_asset',
   'media.deleted': 'media_asset',
 
   'auth.password-changed': 'app_user',

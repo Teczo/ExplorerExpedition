@@ -9,6 +9,7 @@
 import type { ComponentType } from 'react';
 
 import { ExpeditionsPage } from './pages/ExpeditionsPage.tsx';
+import { MediaLibraryPage } from './pages/MediaLibraryPage.tsx';
 import { MissionTypesPage } from './pages/MissionTypesPage.tsx';
 import { OverviewPage } from './pages/OverviewPage.tsx';
 
@@ -22,6 +23,7 @@ export const ROUTES: readonly Route[] = [
   { path: '/', label: 'Overview', page: OverviewPage },
   { path: '/mission-types', label: 'Mission types', page: MissionTypesPage },
   { path: '/expeditions', label: 'Expedition graphs', page: ExpeditionsPage },
+  { path: '/media', label: 'Media library', page: MediaLibraryPage },
 ];
 
 /** What the side navigation lists, in order. */

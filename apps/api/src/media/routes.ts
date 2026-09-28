@@ -53,8 +53,14 @@ import type { MediaKind } from '../repositories/rows.ts';
 import { MediaService } from './media-service.ts';
 import type { MediaStorage } from './media-storage.ts';
 
-/** The four kinds `media_kind` allows (0001). */
-export const MEDIA_KINDS = ['image', 'audio', 'video', 'document'] as const satisfies readonly MediaKind[];
+/** The kinds `media_kind` allows: four from 0001, and `model` from 0008. */
+export const MEDIA_KINDS = [
+  'image',
+  'audio',
+  'video',
+  'document',
+  'model',
+] as const satisfies readonly MediaKind[];
 
 /**
  * The top-level types each kind accepts.
@@ -69,13 +75,15 @@ const TYPES_BY_KIND: Readonly<Record<MediaKind, readonly string[]>> = {
   audio: ['audio'],
   video: ['video'],
   document: ['application', 'text'],
+  // A 3D model: `model/gltf-binary`, `model/gltf+json`, `model/vnd.usdz+zip`.
+  model: ['model'],
 };
 
 /** `type/subtype`, as RFC 6838 allows them, and no parameters. */
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
 /** A media type, lower-cased. */
-function mediaType(): Checker<string> {
+export function mediaType(): Checker<string> {
   return {
     check(value, path) {
       if (typeof value !== 'string' || !MEDIA_TYPE.test(value.trim().toLowerCase())) {
@@ -121,19 +129,7 @@ export function createMediaRouter(options: MediaRouterOptions): Router {
     validateBody(UploadBody),
     async (request, response) => {
       const body = bodyOf(request, UploadBody);
-      // A kind and a type that contradict each other are one mistake, found
-      // only once both are known to be well formed.
-      const topLevel = body.contentType.split('/')[0] ?? '';
-      if (!TYPES_BY_KIND[body.kind].includes(topLevel)) {
-        throw new ValidationError([
-          {
-            path: 'contentType',
-            message: `A file of kind ${body.kind} has to be ${TYPES_BY_KIND[body.kind]
-              .map((type) => `${type}/…`)
-              .join(' or ')}.`,
-          },
-        ]);
-      }
+      assertTypeFitsKind(body.kind, body.contentType);
 
       const grant = await serviceFor(request, storage).requestUpload(principalOf(request), body);
       response.setHeader('Cache-Control', 'no-store');
@@ -156,6 +152,24 @@ export function createMediaRouter(options: MediaRouterOptions): Router {
   );
 
   return router;
+}
+
+/**
+ * Refuses a kind and a type that contradict each other. It is one mistake,
+ * found only once both are known to be well formed.
+ */
+export function assertTypeFitsKind(kind: MediaKind, contentType: string): void {
+  const topLevel = contentType.split('/')[0] ?? '';
+  if (!TYPES_BY_KIND[kind].includes(topLevel)) {
+    throw new ValidationError([
+      {
+        path: 'contentType',
+        message: `A file of kind ${kind} has to be ${TYPES_BY_KIND[kind]
+          .map((type) => `${type}/…`)
+          .join(' or ')}.`,
+      },
+    ]);
+  }
 }
 
 function serviceFor(request: Request, storage: MediaStorage | undefined): MediaService {

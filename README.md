@@ -105,7 +105,8 @@ channel that tells a run's phones and its teacher what just changed
 (EXPD-024), and the Mission Type Builder inside it (EXPD-025), and the
 expedition graph editor beside it (EXPD-026), and the property panel that
 edits what is selected on that graph (EXPD-027), and the unlock conditions,
-routes and dependencies it sets on the graph's edges and stops (EXPD-029), all
+routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
+the media library those missions show files from (EXPD-030), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -141,6 +142,8 @@ document is still a valid one and reads as an expedition with no routes where
 every mission blocks the way and none is hidden.
 1.2.0 added `boss` to a mission node for the graph editor (EXPD-026). It is a
 word for the author and has no effect on play.
+1.3.0 added `model` to the kinds a mission's `media` may name, for 3D files in
+the media library (EXPD-030). The document is now written at **1.3.0**.
 
 `validateExpeditionDefinition` checks the shape of a document and the way its
 parts point at each other: unknown ids, a mission no node uses, a graph with no
@@ -169,6 +172,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
+# …and so on, in order, up to 0008_media_library.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -2224,7 +2228,8 @@ that says so.
 **What is deliberately not here.**
 
 1. **Nothing marks a file `ready`.** A row is `pending` from the moment the
-   URL is signed, and stays so. Checking the blob arrived, and recording its
+   URL is signed, and stays so. The media library (EXPD-030) is the exception:
+   it checks its own files arrived. Checking the blob arrived, and recording its
    real size, is not in this ticket's scope. A download is signed for a
    `pending` file too; if nothing was uploaded, Blob Storage answers 404.
 2. **No size limit.** A signed URL cannot cap how many bytes are PUT to it.
@@ -2646,8 +2651,8 @@ written until it reads.
 
 **What is deliberately not here.**
 
-1. **Media** (EXPD-030) and **location** (EXPD-039). A mission's `media` and
-   `location` are kept as they are, and the panel says so.
+1. **Location** (EXPD-039). A mission's `location` is kept as it is, and the
+   panel says so. A mission's `media` is edited here since EXPD-030, below.
 2. **Changing a mission's type.** The type and its version are pinned when
    the mission is placed. To change it, place a new mission.
 3. **Scoring rules** (EXPD-028). Conditions on edges (EXPD-029) are
@@ -2691,6 +2696,81 @@ free-roam expedition the panel says that conditions are ignored in play.
 **What is deliberately not here.** Which route a team is on (EXPD-018 and
 the creator's screens), and whether the whole expedition can be finished
 (the simulation harness, EXPD-015, and AI validation, EXPD-066).
+
+### The media library
+
+The files an organisation's missions, mission types and templates share:
+images, audio, video, PDFs and 3D models (`.glb`, `.gltf`, `.usdz`). An author
+uploads a file once, in the Studio's **Media library** screen, and places it
+on as many missions as they like from the property panel.
+
+A library file is a `media_asset` row with `in_library` set, so it is signed,
+stored and read back exactly as EXPD-021's files are. Migration
+`0008_media_library.sql` adds three things: `model` to `media_kind`, and
+`in_library` and `name` to `media_asset`. A library row can never be evidence:
+the database refuses one with a submission or a student on it.
+
+| Endpoint                              | Needs           | What it does                                        |
+| ------------------------------------- | --------------- | --------------------------------------------------- |
+| `GET /media/library`                  | `media:read`    | The library, newest first. `?kind=model` narrows it. |
+| `GET /media/library/:id`              | `media:read`    | One file.                                           |
+| `POST /media/library`                 | `media:library` | A `pending` file, and a create-only URL to upload to. |
+| `POST /media/library/:id/complete`    | `media:library` | Checks the file is in storage. Marks it `ready`.    |
+| `PATCH /media/library/:id`            | `media:library` | Renames it, or changes its alt text.                |
+| `DELETE /media/library/:id`           | `media:library` | Takes it out of the library. Downloads stop.        |
+
+A file is read with EXPD-021's `GET /media/:mediaId/download`.
+
+**Adding a file is three steps.** The Studio asks for an upload URL, PUTs the
+bytes straight to Blob Storage, then asks the API to check. The check is a
+`HEAD` on the blob, with a read URL signed for it. Only when the blob is there
+does the row become `ready`, with the size storage reports. A `pending` file
+stays in the list with a **Check upload** button, and is not offered for a
+mission.
+
+**Who may do what.** `media:library` is new. Creators, org admins and
+platform admins hold it. A phone holds `media:write` for evidence, and must
+not be able to change what authors placed, so it is a separate permission.
+Teachers may read the library. Another organisation's file, a removed file,
+and evidence are all `404` on every library route.
+
+**The record.** Marking a file ready writes `media.added`. A rename writes
+`media.updated`, and a removal writes `media.deleted`. Each is in the same
+transaction as the change. Asking for an upload URL writes nothing, for
+EXPD-021's reason.
+
+**On a mission.** The property panel's **Media** section lists the mission's
+files in order. An author adds a ready file from the library, moves it up or
+down, sets the alt text for this mission, or takes it off. A file removed from
+the library since is still listed, by id, with a warning.
+
+| File                                      | What it holds                                   |
+| ----------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/media/library-service.ts`   | List, add, check, rename, remove.               |
+| `apps/api/src/media/library-routes.ts`    | The endpoints, and the stack in front of them.  |
+| `apps/api/src/media/media-storage.ts`     | `inspect`: is the blob there, and how big.      |
+| `apps/studio/src/media/library.ts`        | The calls, and what kind a file is.             |
+| `apps/studio/src/pages/MediaLibraryPage.tsx` | The screen.                                  |
+| `apps/studio/src/expeditions/properties.ts` | `addMedia`, `moveMedia`, `setMediaAltText`, `removeMedia`. |
+| `apps/api/test/media/library.test.ts`     | 14 tests, over HTTP.                            |
+| `apps/studio/test/media-library.test.ts`  | 11 tests.                                       |
+
+**What is deliberately not here.**
+
+1. **No CORS on the storage account.** A browser can PUT to Blob Storage only
+   if the storage account allows the Studio's origin. EXPD-007's Bicep sets
+   no CORS rules. Until it does, the upload step fails in a deployed Studio.
+2. **The blob is not deleted.** Removing a file marks the row `deleted`. The
+   blob stays in the container. Clearing removed and never-finished blobs is
+   a clean-up job no ticket has asked for.
+3. **Nothing checks a file is still in use.** Removing a file placed on a
+   mission is allowed. The panel then shows it as missing.
+4. **No size limit, and no check of the bytes.** A signed URL cannot cap a
+   PUT (EXPD-021). The type is what the browser, or the file extension, says.
+5. **No thumbnails, no search, no folders.** Images preview in the list;
+   other kinds open in a new tab.
+6. **One organisation's library.** `organisation_id` is `NOT NULL`, so there
+   is no platform-wide library. Templates (EXPD-060) use the organisation's.
 
 ### Known gaps in `apps/student-mobile`
 

@@ -13,6 +13,7 @@
  *     app.use('/expeditions', ...);    //    EXPD-017
  *     app.use('/join', ...);           //    EXPD-018
  *     app.use('/sessions', ...);       //    EXPD-018, then EXPD-019, then EXPD-020
+ *     app.use('/media/library', ...);  //    EXPD-030, the media library
  *     app.use('/media', ...);          //    EXPD-021
  *     app.use('/sessions' and '/expeditions', ...) // EXPD-022, the leaderboards
  *     app.use('/sessions', ...);       //    EXPD-023, the realtime channel
@@ -39,7 +40,12 @@ import {
 import { createSessionRouter } from './sessions/index.ts';
 import { createPlayRouter } from './play/index.ts';
 import { createMissionTypeRouter } from './mission-types/index.ts';
-import { createMediaRouter, mediaStorageFrom, type MediaStorage } from './media/index.ts';
+import {
+  createMediaLibraryRouter,
+  createMediaRouter,
+  mediaStorageFrom,
+  type MediaStorage,
+} from './media/index.ts';
 import {
   createExpeditionLeaderboardRouter,
   createSessionLeaderboardRouter,
@@ -217,11 +223,12 @@ export function createApp(options: AppOptions = {}): Express {
     );
     // EXPD-025: the Studio's Mission Type Builder saves drafts here.
     app.use('/mission-types', createMissionTypeRouter({ db, auth }));
+    const mediaStorage = options.mediaStorage ?? mediaStorageFromEnvironment();
+    // EXPD-030: the media library. Before `/media`, so that `/media/library`
+    // is never read as a file id.
+    app.use('/media/library', createMediaLibraryRouter({ db, auth, storage: mediaStorage }));
     // EXPD-021: signed URLs, so a phone uploads straight to Blob Storage.
-    app.use(
-      '/media',
-      createMediaRouter({ db, auth, storage: options.mediaStorage ?? mediaStorageFromEnvironment() }),
-    );
+    app.use('/media', createMediaRouter({ db, auth, storage: mediaStorage }));
   }
 
   app.use(notFoundHandler());
