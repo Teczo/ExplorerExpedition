@@ -121,6 +121,8 @@ export interface FixtureOptions {
   readonly runStatus?: string;
   /** How long ago the run started. Ten minutes unless said. */
   readonly startedSecondsAgo?: number;
+  /** A different type and config for `gate`, for a mission type's own tests. */
+  readonly gate?: { readonly type: string; readonly config: JsonObject };
 }
 
 function missionOf(
@@ -161,11 +163,11 @@ export function definitionOf(options: FixtureOptions = {}): JsonObject {
     status: 'published',
     metadata: { title: 'The River Trail' },
     missions: [
-      missionOf('gate', 'code-match', {
+      missionOf('gate', options.gate?.type ?? 'code-match', {
         basePoints: 10,
         maxAttempts: options.gateMaxAttempts === undefined ? 2 : options.gateMaxAttempts,
         ...(options.cooldownSeconds === undefined ? {} : { cooldownSeconds: options.cooldownSeconds }),
-        config: { code: 'OTTER' },
+        config: options.gate?.config ?? { code: 'OTTER' },
         hints: [
           { id: 'gate-hint-2', text: 'It swims.', order: 2, tokenCost: 1 },
           { id: 'gate-hint-1', text: 'Look on the gatepost.', order: 1, tokenCost: 1 },
