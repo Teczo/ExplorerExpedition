@@ -7,7 +7,7 @@
  * no.
  */
 
-import { test, describe } from 'node:test';
+import { test, describe, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -213,7 +213,11 @@ describe("reading Blob Storage's answer", () => {
   });
 });
 
-test('mediaStorageFrom signs with the key the identity fetched', async () => {
+test('mediaStorageFrom signs with the key the identity fetched', async (t) => {
+  // mediaStorageFrom reads the real clock, and the fake key ends on a fixed
+  // day. Hold the clock at NOW so the test does not expire with the key.
+  mock.timers.enable({ apis: ['Date'], now: NOW });
+  t.after(() => mock.timers.reset());
   const azure = fakeAzure();
   const mediaStorage = mediaStorageFrom(
     {

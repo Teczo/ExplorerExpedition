@@ -111,8 +111,9 @@ export interface AppOptions {
   readonly log?: ErrorLogger;
   /**
    * Mission types that come as code, with a behaviour that judges work
-   * (EXPD-009). `PLATFORM_MISSION_TYPES` when absent — photo evidence
-   * (EXPD-033) and whichever of EXPD-032 to EXPD-039 have landed. A type
+   * (EXPD-009). `PLATFORM_MISSION_TYPES` when absent — the QR hunt
+   * (EXPD-032), photo evidence (EXPD-033) and whichever of EXPD-034 to
+   * EXPD-039 have landed. A type
    * that is not here is judged from its `mission_type` row alone, which the
    * engine sends to a teacher.
    */
