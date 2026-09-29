@@ -10,7 +10,8 @@
  *   `views.ts`                 What the Studio reads.
  *   `routes.ts`                The endpoints, and the stack in front of them.
  *   `platform/`                The types the platform ships as code, such as
- *                              the QR hunt (EXPD-032).
+ *                              the QR hunt (EXPD-032) and photo evidence
+ *                              (EXPD-033).
  */
 
 export * from './documents.ts';

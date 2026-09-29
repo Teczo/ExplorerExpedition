@@ -107,8 +107,9 @@ expedition graph editor beside it (EXPD-026), and the property panel that
 edits what is selected on that graph (EXPD-027), and the unlock conditions,
 routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
-and versioning a mission type (EXPD-031), and the first mission type the
-platform ships as code, the QR hunt (EXPD-032), all
+and versioning a mission type (EXPD-031), and the first mission types the
+platform ships as code, the QR hunt (EXPD-032) and photo evidence
+(EXPD-033), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -174,7 +175,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0009_qr_hunt_mission_type.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0010_photo_evidence_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -2895,6 +2896,72 @@ Where it lives:
    The mission's `config` holds its codes instead.
 2. **No scanning.** The camera and the scan screen are EXPD-043.
 3. **No printable markers.** Making the QR images is not in this ticket.
+
+### The photo evidence mission type
+
+`photo-evidence@1.0.0` is a mission type the platform ships as code
+(EXPD-033). A team takes a photo as proof they did the mission. The phone
+uploads it first, through a signed URL (`POST /media/uploads`, EXPD-021),
+and then hands in the id that upload gave back.
+
+```json
+{ "payload": { "mediaId": "0b6f1c1e-6a3b-4a4e-9f55-3c2b1a0d9e11", "caption": "By the pond." } }
+```
+
+The author writes two optional settings in the mission's `config`:
+
+| Setting               | What it does                                                          |
+| --------------------- | --------------------------------------------------------------------- |
+| `mustShow`            | Up to ten things the photo has to show. The team sees them; so does the reviewer. |
+| `acceptWithoutReview` | `true` counts the photo as soon as it arrives. Default `false`.        |
+
+```json
+{ "mustShow": ["The heron", "Your whole team"], "acceptWithoutReview": false }
+```
+
+What happens to a photo:
+
+- **By default a teacher decides.** Code cannot judge a photo, so the type
+  answers `needs-review`. The mission waits in `awaiting-verification` and
+  nothing is scored until a teacher approves or rejects it
+  (`POST /sessions/:id/teams/:teamId/missions/:missionId/complete`).
+- **With `acceptWithoutReview`, it counts at once.** Nobody is asked to
+  look at it.
+- **The verdict's `detail` carries the photo.** `mediaId`, `mustShow` and the
+  `caption`, so the reviewer sees the photo and the list together.
+
+The API checks the photo before it writes anything. Each of these is `409`
+with the refusal code `invalid-evidence`, and no try is spent:
+
+- the id is not a file of this organisation, or the file was deleted;
+- the upload failed;
+- the file is not an image;
+- nobody on this team uploaded it;
+- it was already handed in for another submission.
+
+Once the submission is written, the file is tied to it
+(`media_asset.submission_id`). The review queue (EXPD-056) reads that to
+show a teacher the photo. A file still `pending` is accepted, because nothing
+marks team evidence `ready` yet.
+
+Where it lives:
+
+| File                                                          | What it holds                                   |
+| ------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/photo-evidence.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`                | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/src/play/evidence.ts`                               | Checks the photo, and ties it to the submission. |
+| `apps/api/db/migrations/0010_photo_evidence_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/photo-evidence.test.ts`          | What may be written and handed in, and the verdicts. |
+| `apps/api/test/mission-types/photo-evidence-row.test.ts`      | The row in 0010 matches the code, field by field. |
+| `apps/api/test/play/photo-evidence.test.ts`                   | A photo handed in through the API, and the ones refused. |
+
+**What is deliberately not here.**
+
+1. **No camera.** Taking and uploading the photo on the phone is EXPD-044.
+2. **No review queue.** The list of photos waiting for a teacher is EXPD-056.
+3. **One photo per submission.** A mission that needs several photos is
+   several missions.
 
 ### Known gaps in `apps/student-mobile`
 
