@@ -9,9 +9,12 @@
  *                              publishing freezes, a change is a new version.
  *   `views.ts`                 What the Studio reads.
  *   `routes.ts`                The endpoints, and the stack in front of them.
+ *   `platform/`                The types the platform ships as code, such as
+ *                              photo evidence (EXPD-033).
  */
 
 export * from './documents.ts';
 export * from './mission-type-service.ts';
 export * from './views.ts';
 export * from './routes.ts';
+export * from './platform/index.ts';

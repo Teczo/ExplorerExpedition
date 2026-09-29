@@ -8,9 +8,9 @@
  *
  *   1. **Code the process was started with.** A type that can judge an answer
  *      on its own — a QR hunt matching a code, a puzzle checking an answer —
- *      is a `MissionTypeEntry` with a `behaviour`, and code is not a row. The
- *      mission type tickets (EXPD-032 to EXPD-039) are what will hand these to
- *      `createApp`; until then there are none.
+ *      is a `MissionTypeEntry` with a `behaviour`, and code is not a row.
+ *      `PLATFORM_MISSION_TYPES` is the list `createApp` hands over, starting
+ *      with photo evidence (EXPD-033).
  *   2. **A row of `mission_type`.** A definition and nothing else. The
  *      completion interface (EXPD-011) already knows what to do with a type
  *      that has no code: a reached place finishes the mission, and anything

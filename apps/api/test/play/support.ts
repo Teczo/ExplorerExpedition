@@ -121,6 +121,10 @@ export interface FixtureOptions {
   readonly runStatus?: string;
   /** How long ago the run started. Ten minutes unless said. */
   readonly startedSecondsAgo?: number;
+  /** The config of the `photo` mission. Empty unless said. */
+  readonly photoConfig?: JsonObject;
+  /** The types the API plays with as code. `code-match` alone unless said. */
+  readonly missionTypes?: readonly MissionTypeEntry[];
 }
 
 function missionOf(
@@ -171,7 +175,10 @@ export function definitionOf(options: FixtureOptions = {}): JsonObject {
           { id: 'gate-hint-1', text: 'Look on the gatepost.', order: 1, tokenCost: 1 },
         ],
       }),
-      missionOf('photo', 'photo-evidence', { basePoints: 20 }),
+      missionOf('photo', 'photo-evidence', {
+        basePoints: 20,
+        ...(options.photoConfig === undefined ? {} : { config: options.photoConfig }),
+      }),
       missionOf('tower', 'code-match', { basePoints: 30, config: { code: 'HERON' } }),
       missionOf('ghost', 'nobody-registered-this', { basePoints: 5 }),
     ],
@@ -430,14 +437,17 @@ export interface Harness {
 }
 
 /** The whole API, with the fixture seeded and `code-match` given as code. */
-export function playApp(db: FakeDatabase): Express {
-  return createApp({ db, authConfig: CONFIG, missionTypes: [codeMatch] });
+export function playApp(
+  db: FakeDatabase,
+  missionTypes: readonly MissionTypeEntry[] = [codeMatch],
+): Express {
+  return createApp({ db, authConfig: CONFIG, missionTypes });
 }
 
 export async function harness(options: FixtureOptions = {}): Promise<Harness> {
   const db = new FakeDatabase();
   seed(db, options);
-  const app = await listen(playApp(db));
+  const app = await listen(playApp(db, options.missionTypes));
 
   const post = (path: string, bearer: string, body?: unknown): Promise<Answer> =>
     send(app, path, {

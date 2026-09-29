@@ -39,7 +39,7 @@ import {
 } from './participation/index.ts';
 import { createSessionRouter } from './sessions/index.ts';
 import { createPlayRouter } from './play/index.ts';
-import { createMissionTypeRouter } from './mission-types/index.ts';
+import { createMissionTypeRouter, PLATFORM_MISSION_TYPES } from './mission-types/index.ts';
 import {
   createMediaLibraryRouter,
   createMediaRouter,
@@ -111,9 +111,10 @@ export interface AppOptions {
   readonly log?: ErrorLogger;
   /**
    * Mission types that come as code, with a behaviour that judges work
-   * (EXPD-009). The mission type tickets (EXPD-032 to EXPD-039) are what
-   * will pass these. A type that is not here is judged from its
-   * `mission_type` row alone, which the engine sends to a teacher.
+   * (EXPD-009). `PLATFORM_MISSION_TYPES` when absent — photo evidence
+   * (EXPD-033) and whichever of EXPD-032 to EXPD-039 have landed. A type
+   * that is not here is judged from its `mission_type` row alone, which the
+   * engine sends to a teacher.
    */
   readonly missionTypes?: readonly MissionTypeEntry[];
   /**
@@ -200,7 +201,7 @@ export function createApp(options: AppOptions = {}): Express {
         db,
         auth,
         realtime,
-        ...(options.missionTypes === undefined ? {} : { missionTypes: options.missionTypes }),
+        missionTypes: options.missionTypes ?? PLATFORM_MISSION_TYPES,
       }),
     );
     // EXPD-022: `/:sessionId/leaderboard` and `/:expeditionId/leaderboard`.

@@ -108,6 +108,13 @@ import { clockOf } from '../sessions/session-service.ts';
 import type { SessionClock } from '../sessions/session-clock.ts';
 import { timingRulesOf } from '../sessions/timing-rules.ts';
 import { TeamStream } from '../stream/team-stream.ts';
+import {
+  PHOTO_EVIDENCE_KEY,
+  PHOTO_EVIDENCE_VERSION,
+  photoEvidence,
+  photoEvidenceMediaId,
+} from '../mission-types/platform/index.ts';
+import { attachEvidence, checkEvidence } from './evidence.ts';
 import { rebuildMissions } from './mission-log.ts';
 import { registryForMission } from './mission-types.ts';
 import { PlayRepository, type TeamScope } from './play-repository.ts';
@@ -376,6 +383,14 @@ export class PlayService {
         throw refusedByEngine(result.refusal);
       }
 
+      // A photo is checked once the engine has taken the submission, so a
+      // mission that is not running says so before a file is looked at.
+      const tenant = this.#tenant.withConnection(tx);
+      const evidence = this.#evidenceOf(context.mission, input.payload);
+      if (evidence !== undefined) {
+        await checkEvidence(tenant, context.team.id, evidence);
+      }
+
       const attempt = await this.#runningAttempt(context);
       const submission = await context.repo.insertSubmission({
         missionAttemptId: attempt.id,
@@ -386,6 +401,9 @@ export class PlayService {
         submittedAt: input.submittedAt ?? context.now,
         receivedAt: context.now,
       });
+      if (evidence !== undefined) {
+        await attachEvidence(tenant, evidence, submission.id);
+      }
 
       await context.repo.appendTransitions(
         context.scope,
@@ -722,6 +740,24 @@ export class PlayService {
       nextSequence,
       now,
     };
+  }
+
+  /**
+   * The file a submission hands in as evidence, when it hands one in.
+   *
+   * Only for photo evidence (EXPD-033), and only when this process plays
+   * with its code: a list of types without it judges the mission from its
+   * row, and the row says nothing about files.
+   */
+  #evidenceOf(mission: MissionInstance, payload: JsonObject): string | undefined {
+    if (
+      mission.missionTypeId !== PHOTO_EVIDENCE_KEY ||
+      mission.missionTypeVersion !== PHOTO_EVIDENCE_VERSION ||
+      !this.#coded.includes(photoEvidence)
+    ) {
+      return undefined;
+    }
+    return photoEvidenceMediaId(payload);
   }
 
   /**
