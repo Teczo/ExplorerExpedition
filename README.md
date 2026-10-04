@@ -108,8 +108,8 @@ edits what is selected on that graph (EXPD-027), and the unlock conditions,
 routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
-platform ships as code, the QR hunt (EXPD-032) and photo evidence
-(EXPD-033), all
+platform ships as code, the QR hunt (EXPD-032), photo evidence
+(EXPD-033) and the puzzle (EXPD-035), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -175,7 +175,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0010_photo_evidence_mission_type.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0012_puzzle_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -2962,6 +2962,94 @@ Where it lives:
 2. **No review queue.** The list of photos waiting for a teacher is EXPD-056.
 3. **One photo per submission.** A mission that needs several photos is
    several missions.
+
+### The puzzle mission type
+
+`puzzle@1.0.0` is a mission type the platform ships as code (EXPD-035). The
+team solves a logic, code, sequence or pattern puzzle and answers it in the
+app. The phone sends one of three fields, depending on how the puzzle is
+answered:
+
+```json
+{ "payload": { "answer": "47 19" } }
+{ "payload": { "selected": ["ben"] } }
+{ "payload": { "order": ["abbey", "mill", "town", "weir"] } }
+```
+
+The author writes the mission's `config`:
+
+| Setting           | What it does                                                            |
+| ----------------- | ----------------------------------------------------------------------- |
+| `kind`            | `logic`, `code`, `sequence` or `pattern`. Required. How the app shows it. |
+| `question`        | The puzzle itself. Required. The team sees it.                          |
+| `answerType`      | `text`, `number`, `choice` or `order`. Required.                        |
+| `acceptedAnswers` | `text` and `number`: up to fifty answers that count.                    |
+| `caseSensitive`   | `text`: case matters. Default `false`.                                  |
+| `ignoreSpaces`    | `text`: every space is dropped, for a code typed as `47 19`. Default `false`. |
+| `tolerance`       | `number`: how far off an answer may be. Default `0`.                    |
+| `choices`         | `choice` and `order`: two to twenty `{ "id", "label" }`. The team sees them. |
+| `correctChoices`  | `choice`: the ids that have to be picked, no more and no fewer.         |
+| `correctOrder`    | `order`: the ids in the right order. Absent means the order written.    |
+
+```json
+{
+  "kind": "sequence",
+  "question": "Put the locks in the order they were built.",
+  "answerType": "order",
+  "choices": [
+    { "id": "mill", "label": "Mill lock" },
+    { "id": "abbey", "label": "Abbey lock" },
+    { "id": "weir", "label": "Weir lock" },
+    { "id": "town", "label": "Town lock" }
+  ],
+  "correctOrder": ["abbey", "mill", "town", "weir"]
+}
+```
+
+What happens to an answer:
+
+- **Right is `correct`; wrong is `incorrect`, with "Not quite. Try again."**
+  Feedback never says the answer, and neither does the verdict's `detail`,
+  which keeps only what the team sent.
+- **An order says how close it came:** `2 of 4 in the right place.`, and
+  `progress` is the same fraction.
+- **Text** ignores spaces at the ends, counts a run of spaces as one, and
+  ignores case unless told otherwise. **A number** is read as a plain
+  decimal with a dot, so `54`, `54.0` and `054` are one answer and `5,4` is
+  asked again ("Answer with a number.").
+- **The wrong field, or an empty one,** is `incorrect` with "Give your answer
+  first." A payload with no field at all is refused (`invalid-submission`).
+- **A puzzle with no answer set** — no usable `acceptedAnswers`, no
+  `correctChoices` that are choices — goes to a teacher (`needs-review`)
+  instead of turning every answer away.
+
+Only `question` and `choices` are placed in the student layout, so the
+answer fields stay off the team's screen.
+
+Rules the type holds, because the schema subset cannot compare two fields or
+say one depends on another: each `answerType` reads only its own fields; a
+choice id listed twice is one choice; a correct id that is not a choice is
+ignored.
+
+Where it lives:
+
+| File                                                  | What it holds                                   |
+| ----------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/puzzle.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`        | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/db/migrations/0012_puzzle_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/puzzle.test.ts`          | What may be written and handed in, and the verdicts for each answer type. |
+| `apps/api/test/mission-types/puzzle-row.test.ts`      | The row in 0012 matches the code, field by field. |
+| `apps/api/test/play/puzzle.test.ts`                   | A puzzle played through the API.                |
+
+**What is deliberately not here.**
+
+1. **No time limit of its own.** A puzzle against the clock is the timed
+   challenge (EXPD-036), or the mission's own time limit.
+2. **No answer tied to a place or a scan.** A code found on a marker is the
+   QR hunt (EXPD-032).
+3. **No puzzle screens.** Drawing the question, the choices and the
+   drag-to-order list on the phone is the mission detail view (EXPD-042).
 
 ### Known gaps in `apps/student-mobile`
 
