@@ -109,7 +109,7 @@ routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
 platform ships as code, the QR hunt (EXPD-032), photo evidence
-(EXPD-033) and the puzzle (EXPD-035), all
+(EXPD-033), the physical challenge (EXPD-034) and the puzzle (EXPD-035), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -2962,6 +2962,77 @@ Where it lives:
 2. **No review queue.** The list of photos waiting for a teacher is EXPD-056.
 3. **One photo per submission.** A mission that needs several photos is
    several missions.
+
+### The physical challenge mission type
+
+`physical-challenge@1.0.0` is a mission type the platform ships as code
+(EXPD-034). The app describes a task the team does in the real world — build
+something, move, or show a skill — and the team says when it is done. When
+the author gives it a measure, the team hands in a number too.
+
+```json
+{ "payload": { "done": true, "result": 55, "note": "Wobbly, but it stood." } }
+```
+
+The author writes the mission's `config`:
+
+| Setting               | What it does                                                          |
+| --------------------- | --------------------------------------------------------------------- |
+| `activity`            | `build`, `move` or `skill`. Required.                                 |
+| `steps`               | One to twenty steps the team follows. Required. The team sees them.  |
+| `doneWhen`            | Up to ten things that mean "done". The team sees them; so does the reviewer. |
+| `measure`             | Optional. `what` and `unit` (both required), and a target: `atLeast`, `atMost` or both. |
+| `acceptWithoutReview` | `true` counts a challenge as soon as the team says it is done. Default `false`. |
+
+```json
+{
+  "activity": "build",
+  "steps": ["Build a tower from the cups."],
+  "doneWhen": ["It stands on its own for ten seconds"],
+  "measure": { "what": "Tower height", "unit": "cm", "atLeast": 50 }
+}
+```
+
+What happens to a hand-in:
+
+- **With a measure, the result is checked first.** No `result` is
+  `incorrect` and asks for one. A result outside the target is `incorrect`
+  and the feedback says the target (`Not yet: 35 cm. Tower height has to be
+  at least 50 cm.`) — the team is shown the target anyway. Under an
+  `atLeast`-only target, `progress` says how close it came.
+- **By default a teacher decides the rest.** Code cannot watch a team, so a
+  challenge the team says is done is `needs-review` and waits in
+  `awaiting-verification`, as a photo does.
+- **With `acceptWithoutReview`, it counts at once.**
+- **The verdict's `detail` carries what the reviewer needs:** `activity`,
+  `doneWhen`, the `measure`, `unit` and `result` when there is a measure, and
+  the team's `note`.
+
+Rules the type holds, because the schema subset cannot compare two fields or
+say one depends on another:
+
+- A `result` is read only when there is a `measure`.
+- An `atLeast` above `atMost` is read as the range between them.
+- A `measure` with no target records the number and checks nothing.
+
+Where it lives:
+
+| File                                                              | What it holds                                   |
+| ----------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/physical-challenge.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`                    | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/db/migrations/0011_physical_challenge_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/physical-challenge.test.ts`          | What may be written and handed in, and the verdicts. |
+| `apps/api/test/mission-types/physical-challenge-row.test.ts`      | The row in 0011 matches the code, field by field. |
+| `apps/api/test/play/physical-challenge.test.ts`                   | A challenge played through the API.             |
+
+**What is deliberately not here.**
+
+1. **No photo or video proof.** A challenge that needs a picture is a photo
+   evidence mission (EXPD-033), or one placed after it.
+2. **No timing.** A clock the app runs is the timed challenge (EXPD-036). A
+   time the team measures itself is a `measure` in seconds.
+3. **Nothing the phone senses.** `capabilities` is empty.
 
 ### The puzzle mission type
 
