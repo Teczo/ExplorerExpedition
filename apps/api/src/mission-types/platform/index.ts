@@ -12,10 +12,12 @@
 import type { MissionTypeEntry } from '@explorer/engine';
 
 import { photoEvidence } from './photo-evidence.ts';
+import { physicalChallenge } from './physical-challenge.ts';
 import { qrHunt } from './qr-hunt.ts';
 
 export * from './photo-evidence.ts';
+export * from './physical-challenge.ts';
 export * from './qr-hunt.ts';
 
 /** Every mission type the platform ships as code. */
-export const PLATFORM_MISSION_TYPES: readonly MissionTypeEntry[] = [qrHunt, photoEvidence];
+export const PLATFORM_MISSION_TYPES: readonly MissionTypeEntry[] = [qrHunt, photoEvidence, physicalChallenge];
