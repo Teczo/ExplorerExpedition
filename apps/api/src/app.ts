@@ -113,7 +113,8 @@ export interface AppOptions {
    * Mission types that come as code, with a behaviour that judges work
    * (EXPD-009). `PLATFORM_MISSION_TYPES` when absent — the QR hunt
    * (EXPD-032), photo evidence (EXPD-033), the physical challenge
-   * (EXPD-034) and whichever of EXPD-035 to EXPD-039 have landed. A type
+   * (EXPD-034), the puzzle (EXPD-035) and whichever of EXPD-036 to
+   * EXPD-039 have landed. A type
    * that is not here is judged from its `mission_type` row alone, which the
    * engine sends to a teacher.
    */
