@@ -109,8 +109,8 @@ routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
 platform ships as code, the QR hunt (EXPD-032), photo evidence
-(EXPD-033), the physical challenge (EXPD-034), the puzzle (EXPD-035) and
-the timed challenge (EXPD-036) and teacher verification (EXPD-037), all
+(EXPD-033), the physical challenge (EXPD-034), the puzzle (EXPD-035), the
+timed challenge (EXPD-036) and teacher verification (EXPD-037), all
 described below. The rest is tracked in its
 own tickets:
 
