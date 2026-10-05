@@ -56,6 +56,16 @@ export interface MissionEvaluationInput {
   submission: JsonObject;
   /** Which try this is, counting from one. */
   attemptNumber: number;
+  /**
+   * How long the team had the mission open when they handed this in, in
+   * seconds: from the `start` that opened the try to the moment the caller is
+   * judging at (EXPD-036).
+   *
+   * Both ends are times the caller passed in, so a behaviour that reads this
+   * is still pure. `undefined` when the history holds no start to measure
+   * from — a replay of a lone submission, a caller with no history.
+   */
+  elapsedSeconds?: number;
 }
 
 /** What a behaviour answered. */

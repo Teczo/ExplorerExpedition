@@ -68,7 +68,7 @@ import type {
   TeamScore,
 } from '@explorer/shared-types';
 
-import { attemptStartedAt } from '../completion/timer.ts';
+import { secondsSinceAttemptStarted } from '../completion/timer.ts';
 import {
   award,
   openLedger,
@@ -239,16 +239,7 @@ export function secondsOnMission(
   progress: MissionProgress,
   at: IsoTimestamp,
 ): Seconds | undefined {
-  const startedAt = attemptStartedAt(progress);
-  if (startedAt === undefined) {
-    return undefined;
-  }
-  const started = Date.parse(startedAt);
-  const ended = Date.parse(at);
-  if (Number.isNaN(started) || Number.isNaN(ended) || ended < started) {
-    return undefined;
-  }
-  return (ended - started) / 1000;
+  return secondsSinceAttemptStarted(progress, at);
 }
 
 /** Keeps the mission type's progress figure inside the nought-to-one it promised. */

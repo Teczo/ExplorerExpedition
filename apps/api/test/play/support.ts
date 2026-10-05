@@ -122,7 +122,12 @@ export interface FixtureOptions {
   /** How long ago the run started. Ten minutes unless said. */
   readonly startedSecondsAgo?: number;
   /** A different type and config for `gate`, for a mission type's own tests. */
-  readonly gate?: { readonly type: string; readonly config: JsonObject };
+  readonly gate?: {
+    readonly type: string;
+    readonly config: JsonObject;
+    /** Whether the gate pays part of its points for part of the work. No unless said. */
+    readonly allowPartialCredit?: boolean;
+  };
   /** The config of the `photo` mission. Empty unless said. */
   readonly photoConfig?: JsonObject;
   /** The types the API plays with as code. `code-match` alone unless said. */
@@ -138,6 +143,7 @@ function missionOf(
     readonly cooldownSeconds?: number;
     readonly config?: JsonObject;
     readonly hints?: JsonObject[];
+    readonly allowPartialCredit?: boolean;
   },
 ): JsonObject {
   return {
@@ -147,7 +153,10 @@ function missionOf(
     title: id,
     brief: `Do ${id}.`,
     config: options.config ?? {},
-    scoring: { basePoints: options.basePoints, allowPartialCredit: false },
+    scoring: {
+      basePoints: options.basePoints,
+      allowPartialCredit: options.allowPartialCredit === true,
+    },
     attempts: {
       maxAttempts: options.maxAttempts === undefined ? null : options.maxAttempts,
       ...(options.cooldownSeconds === undefined ? {} : { cooldownSeconds: options.cooldownSeconds }),
@@ -172,6 +181,9 @@ export function definitionOf(options: FixtureOptions = {}): JsonObject {
         maxAttempts: options.gateMaxAttempts === undefined ? 2 : options.gateMaxAttempts,
         ...(options.cooldownSeconds === undefined ? {} : { cooldownSeconds: options.cooldownSeconds }),
         config: options.gate?.config ?? { code: 'OTTER' },
+        ...(options.gate?.allowPartialCredit === undefined
+          ? {}
+          : { allowPartialCredit: options.gate.allowPartialCredit }),
         hints: [
           { id: 'gate-hint-2', text: 'It swims.', order: 2, tokenCost: 1 },
           { id: 'gate-hint-1', text: 'Look on the gatepost.', order: 1, tokenCost: 1 },

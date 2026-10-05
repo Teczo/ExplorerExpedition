@@ -90,7 +90,11 @@ import {
   effectiveVerification,
   type MissionCompletionPolicy,
 } from './policy.ts';
-import { hasMissionExpired, missionDeadline } from './timer.ts';
+import {
+  hasMissionExpired,
+  missionDeadline,
+  secondsSinceAttemptStarted,
+} from './timer.ts';
 
 /** What every check carries, whichever of the three it is. */
 interface CompletionCheckBase {
@@ -302,6 +306,7 @@ function judge(
     };
   }
 
+  const elapsedSeconds = secondsSinceAttemptStarted(request.progress, request.at);
   let evaluation;
   try {
     evaluation = behaviour.evaluate({
@@ -315,6 +320,7 @@ function judge(
         ),
       submission: request.payload,
       attemptNumber: request.progress.attemptsUsed,
+      ...(elapsedSeconds === undefined ? {} : { elapsedSeconds }),
     });
   } catch (error) {
     // A mission type that throws is a mission type with a bug in it, and a

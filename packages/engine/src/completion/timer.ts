@@ -61,6 +61,29 @@ function millisecondsOf(at: IsoTimestamp): number | undefined {
 }
 
 /**
+ * How long the running try had been open at the moment given, in seconds.
+ *
+ * From the `start` that opened the try to `at`. `undefined` when the history
+ * holds no start, holds a time nobody can read, or `at` is before the start —
+ * a time that cannot be measured is not guessed at.
+ */
+export function secondsSinceAttemptStarted(
+  progress: MissionProgress,
+  at: IsoTimestamp,
+): number | undefined {
+  const startedAt = attemptStartedAt(progress);
+  if (startedAt === undefined) {
+    return undefined;
+  }
+  const started = millisecondsOf(startedAt);
+  const ended = millisecondsOf(at);
+  if (started === undefined || ended === undefined || ended < started) {
+    return undefined;
+  }
+  return (ended - started) / 1000;
+}
+
+/**
  * When a running try runs out of time.
  *
  * `undefined` when the mission is not timed, when the team has not opened it,
