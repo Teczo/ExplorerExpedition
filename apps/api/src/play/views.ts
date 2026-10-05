@@ -91,7 +91,29 @@ export interface ProgressionView {
   readonly finished: boolean;
 }
 
-/** The answer every endpoint here gives. */
+/** One piece of a communication challenge, as the phone it was dealt to reads it (EXPD-038). */
+export interface PartView {
+  /** Where it sits in the author's list, counting from nought. */
+  readonly index: number;
+  readonly heading: string;
+  readonly text: string;
+  /** How long the phone may show it before hiding it, or `null` for as long as it likes. */
+  readonly showForSeconds: number | null;
+}
+
+/** What `GET .../part` answers with: this player's share, and nobody else's. */
+export interface PartsView {
+  readonly teamId: string;
+  readonly missionId: string;
+  /** `blind-rover`, `radio-rescue` or `memory-relay`. */
+  readonly pattern: string;
+  /** This player's team role, or `null` for none. */
+  readonly role: string | null;
+  /** Empty for a player who has to be told: the rover, the end of the relay. */
+  readonly parts: readonly PartView[];
+}
+
+/** The answer every endpoint here gives, but `GET .../part`. */
 export interface PlayView {
   /**
    * The team the change was for. A phone never names it, so this is how the

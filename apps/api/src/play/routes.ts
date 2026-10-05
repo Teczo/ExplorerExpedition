@@ -4,6 +4,7 @@
  *   POST /sessions/:id/missions/:missionId/attempts                  start a try
  *   POST /sessions/:id/missions/:missionId/submissions               hand work in
  *   POST /sessions/:id/missions/:missionId/hints                     open a hint
+ *   GET  /sessions/:id/missions/:missionId/part                      read my share of a communication challenge
  *   POST /sessions/:id/teams/:teamId/missions/:missionId/complete    mark waiting work complete, or send it back
  *
  * `:missionId` is the mission's id in the definition document — the
@@ -11,14 +12,14 @@
  * key. A run is pinned to one revision, so inside a run the one names the
  * other.
  *
- * **The first three are a student's phone, and only a phone.** They need
+ * **The first four are a student's phone, and only a phone.** They need
  * `attempt:write`, which only `student-device` holds (EXPD-004), and the team
  * is never in the address: it is the team the phone's student is on, read
  * from the token and the team sheet. A phone cannot play for somebody else's
  * team by writing a different id into a URL, because there is no id to
  * write.
  *
- * **The fourth is a teacher, and only a teacher.** It needs
+ * **The last is a teacher, and only a teacher.** It needs
  * `submission:review`, which creators and facilitators hold, and it names the
  * team, because a teacher marks work for every team in the run.
  *
@@ -282,6 +283,24 @@ export function createPlayRouter(options: PlayRouterOptions): Router {
         tell(request, sessionId, played);
       }
       response.status(played.hint?.alreadyOpened === true ? 200 : 201).json(played);
+    },
+  );
+
+  // EXPD-038: one player's share of a communication challenge. A phone's
+  // route, like the three above, so the player is the one the token names and
+  // there is no id in the address to swap for a teammate's.
+  router.get(
+    '/:sessionId/missions/:missionId/part',
+    ...deviceStack,
+    validateParams(MissionParams),
+    async (request, response) => {
+      const { sessionId, missionId } = paramsOf(request, MissionParams);
+      const part = await serviceFor(db, request, coded).readPart(
+        devicePrincipalOf(request),
+        sessionId,
+        missionId,
+      );
+      response.status(200).json(part);
     },
   );
 

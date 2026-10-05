@@ -110,7 +110,8 @@ the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
 platform ships as code, the QR hunt (EXPD-032), photo evidence
 (EXPD-033), the physical challenge (EXPD-034), the puzzle (EXPD-035), the
-timed challenge (EXPD-036) and teacher verification (EXPD-037), all
+timed challenge (EXPD-036), teacher verification (EXPD-037) and the
+communication challenge (EXPD-038), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -176,7 +177,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0014_teacher_verification_mission_type.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0015_communication_challenge_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -2062,6 +2063,7 @@ those need, asks, and writes down the answer.
 | `POST /sessions/:id/missions/:missionId/attempts`         | A phone      | Start a try.                          |
 | `POST /sessions/:id/missions/:missionId/submissions`      | A phone      | Hand work in, and get the verdict.    |
 | `POST /sessions/:id/missions/:missionId/hints`            | A phone      | Open the next hint, or a named one.   |
+| `GET /sessions/:id/missions/:missionId/part`              | A phone      | Read this player's share of a communication challenge (EXPD-038). |
 | `POST /sessions/:id/teams/:teamId/missions/:missionId/complete` | A teacher | Approve or reject waiting work.   |
 
 `:missionId` is the mission's id in the definition document, which is what
@@ -3257,6 +3259,95 @@ Where it lives:
 2. **No approving work the team never handed in.** A facilitator marking a
    mission done on their own is the manual override, EXPD-058.
 3. **No photo.** Proof by picture is photo evidence (EXPD-033).
+
+### The communication challenge mission type
+
+`communication-challenge@1.0.0` is a mission type the platform ships as code
+(EXPD-038). The information a team needs is **split between its players**,
+so the only way to finish is to talk. It covers three patterns, named by
+`pattern` so the student app knows which it is drawing:
+
+| Pattern        | How it plays                                                              |
+| -------------- | ------------------------------------------------------------------------- |
+| `blind-rover`  | One player holds the route; another walks it without seeing it, guided only by what they are told, and reads the code at the end. |
+| `radio-rescue` | Each player holds a fragment, and the team pieces them into one answer.   |
+| `memory-relay` | One player is shown something briefly and passes it on from memory until the last player hands it in. |
+
+The author writes the mission's `config`:
+
+| Setting           | What it does                                                        |
+| ----------------- | ------------------------------------------------------------------- |
+| `pattern`         | `blind-rover`, `radio-rescue` or `memory-relay`. Required.          |
+| `parts`           | One to twelve pieces of information, each a `heading` and `text`. Required. Optional `role` (a team role it is for) and `showForSeconds` (how long a phone may show it). |
+| `answerType`      | `text` or `sequence`. Required.                                     |
+| `acceptedAnswers` | For `text`: what counts as right. Case and extra spaces never matter. |
+| `correctSequence` | For `sequence`: the items in order.                                 |
+
+```json
+{
+  "pattern": "radio-rescue",
+  "parts": [
+    { "heading": "Bearing", "text": "Due north of the bandstand." },
+    { "heading": "Landmark", "text": "Beside the tallest oak." }
+  ],
+  "answerType": "text",
+  "acceptedAnswers": ["the tallest oak"]
+}
+```
+
+**Who sees what.** Each phone reads its own share, and nobody else's, once
+the team has opened the mission:
+
+```http
+GET /sessions/:id/missions/:missionId/part
+→ { "pattern": "radio-rescue", "role": null,
+    "parts": [{ "index": 0, "heading": "Bearing", "text": "Due north of the bandstand.", "showForSeconds": null }] }
+```
+
+1. A player gets every part whose `role` is their team role (roles are
+   handed out with `PUT /sessions/:id/participants/:pid/team`, EXPD-018).
+2. Parts with no `role` — and parts for a role nobody on the team holds, so
+   nothing is ever lost — are dealt one each, in order, to the players who
+   got nothing in step 1, in the order they joined the team. Dealing wraps
+   round, so a small team still sees every part and a team of one sees them
+   all. If everybody got a role part, the rest are dealt round the whole
+   team.
+
+A player may be dealt nothing: the rover, the end of the relay. They have to
+be told. Before the mission is opened the endpoint answers `409`
+`mission-not-running`; on any other type of mission, `409` `no-parts`.
+
+**The answer.** The team hands in `{ "answer": "…" }` for `text` or
+`{ "sequence": ["…", "…"] }` for `sequence`. A sequence is right only when
+every item is in place; otherwise feedback and `progress` say how many were,
+which pays part of the points when the mission allows partial credit. A
+challenge with no usable answer goes to a teacher. Neither feedback nor
+`detail` ever carries the answer.
+
+**Nothing is placed in the student layout.** A `config-field` block would
+show every part — and could show the answer — to every player, so the parts
+travel only through the part endpoint.
+
+Where it lives:
+
+| File                                                                   | What it holds                                   |
+| ---------------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/communication-challenge.ts`       | The definition, its behaviour, `partsForSeat`, its Studio defaults. |
+| `apps/api/src/play/play-service.ts`                                    | `readPart`, which reads the team and asks `partsForSeat`. |
+| `apps/api/src/play/routes.ts`                                          | `GET .../part`, a phone's route.                |
+| `apps/api/db/migrations/0015_communication_challenge_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/communication-challenge.test.ts`          | What may be written and handed in, who is dealt what, and the verdicts. |
+| `apps/api/test/mission-types/communication-challenge-row.test.ts`      | The row in 0015 matches the code, field by field. |
+| `apps/api/test/play/communication-challenge.test.ts`                   | Parts read and an answer handed in, through the API. |
+
+**What is deliberately not here.**
+
+1. **No screens.** Drawing a part, hiding it after `showForSeconds` and
+   the rover's view are the mission detail view (EXPD-042). The server
+   cannot stop a phone keeping a part on screen; it only says how long.
+2. **No handing out roles.** Roles are assigned as before (EXPD-018); the
+   lobby where a team picks them is EXPD-041.
+3. **No in-app talking.** The team talks out loud, or over real radios.
 
 ### Known gaps in `apps/student-mobile`
 

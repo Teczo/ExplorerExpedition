@@ -11,6 +11,7 @@
 
 import type { MissionTypeEntry } from '@explorer/engine';
 
+import { communicationChallenge } from './communication-challenge.ts';
 import { photoEvidence } from './photo-evidence.ts';
 import { physicalChallenge } from './physical-challenge.ts';
 import { puzzle } from './puzzle.ts';
@@ -18,6 +19,7 @@ import { qrHunt } from './qr-hunt.ts';
 import { teacherVerification } from './teacher-verification.ts';
 import { timedChallenge } from './timed-challenge.ts';
 
+export * from './communication-challenge.ts';
 export * from './photo-evidence.ts';
 export * from './physical-challenge.ts';
 export * from './puzzle.ts';
@@ -33,4 +35,5 @@ export const PLATFORM_MISSION_TYPES: readonly MissionTypeEntry[] = [
   puzzle,
   timedChallenge,
   teacherVerification,
+  communicationChallenge,
 ];

@@ -12,7 +12,7 @@
  *                           replayed into a state on every read.
  *   `mission-types.ts`      The registry one submission is judged against.
  *   `play-repository.ts`    The tables, through the tenant repository.
- *   `play-service.ts`       The four actions, and the transactions they run in.
+ *   `play-service.ts`       The four actions, the part read, and their transactions.
  *   `views.ts`              What a client reads back.
  *   `routes.ts`             The endpoints, and the stack in front of them.
  */

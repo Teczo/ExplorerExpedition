@@ -2,7 +2,8 @@
  * What a team playing a mission actually does (EXPD-020).
  *
  * Four things: start a try, hand work in, open a hint, and — for a teacher —
- * decide on work that was waiting for one. **The engine decides every one of
+ * decide on work that was waiting for one. A fifth only reads: a player's
+ * share of a communication challenge (EXPD-038), which writes nothing. **The engine decides every one of
  * them.** Whether a try may start is the state machine's (EXPD-010), what the
  * work was is the completion interface's (EXPD-011), what it was worth is the
  * scoring engine's (EXPD-012), and what it opened is progression's
@@ -109,6 +110,11 @@ import type { SessionClock } from '../sessions/session-clock.ts';
 import { timingRulesOf } from '../sessions/timing-rules.ts';
 import { TeamStream } from '../stream/team-stream.ts';
 import {
+  COMMUNICATION_CHALLENGE_KEY,
+  COMMUNICATION_CHALLENGE_VERSION,
+  communicationChallenge,
+  partsForSeat,
+  prepareCommunicationChallenge,
   PHOTO_EVIDENCE_KEY,
   PHOTO_EVIDENCE_VERSION,
   photoEvidence,
@@ -124,6 +130,7 @@ import {
   toProgressionView,
   toSubmissionView,
   type HintView,
+  type PartsView,
   type PlayView,
 } from './views.ts';
 
@@ -512,6 +519,71 @@ export class PlayService {
         hint: hintView(hint, false),
         score: { total: scored.score.total, events: scored.events },
         progression,
+      };
+    });
+  }
+
+  // --- A player reads their part of a communication challenge --------------
+
+  /**
+   * The parts of a communication challenge this phone's player is dealt
+   * (EXPD-038), and nobody else's.
+   *
+   * Only while the team's try is running: the information is the mission,
+   * so a team sees it when they open the mission and not before. Who gets
+   * which part is the mission type's to say (`partsForSeat`), from the team
+   * as it stands now, in the order its members joined. Nothing is written.
+   */
+  async readPart(
+    principal: DevicePrincipal,
+    sessionId: string,
+    missionId: string,
+  ): Promise<PartsView> {
+    return inTransaction(this.#db, async (tx) => {
+      const context = await this.#load(tx, { kind: 'device', principal }, sessionId, missionId);
+
+      if (
+        context.mission.missionTypeId !== COMMUNICATION_CHALLENGE_KEY ||
+        context.mission.missionTypeVersion !== COMMUNICATION_CHALLENGE_VERSION ||
+        !this.#coded.includes(communicationChallenge)
+      ) {
+        throw new ApiError('conflict', {
+          message: 'This mission has no parts to hand out.',
+          detail: `${context.mission.id} is ${context.mission.missionTypeId}@${context.mission.missionTypeVersion}`,
+          refusal: { code: 'no-parts' },
+        });
+      }
+      if (context.progress.state !== 'in-progress') {
+        throw new ApiError('conflict', {
+          message: 'Open the mission to see your part.',
+          detail: `team ${context.team.id}: ${context.mission.id} is ${context.progress.state}`,
+          refusal: { code: 'mission-not-running', state: context.progress.state },
+        });
+      }
+
+      const members = await context.repo.listTeamMembers(context.team.id);
+      const me = members.find((member) => member.participant_id === context.participantId);
+      const challenge = prepareCommunicationChallenge(context.mission.config);
+      const parts =
+        me === undefined
+          ? []
+          : partsForSeat(
+              challenge.parts,
+              members.map((member) => ({ memberId: member.id, role: member.role })),
+              me.id,
+            );
+
+      return {
+        teamId: context.team.id,
+        missionId: context.mission.id,
+        pattern: challenge.pattern,
+        role: me?.role ?? null,
+        parts: parts.map((part) => ({
+          index: part.index,
+          heading: part.heading,
+          text: part.text,
+          showForSeconds: part.showForSeconds ?? null,
+        })),
       };
     });
   }

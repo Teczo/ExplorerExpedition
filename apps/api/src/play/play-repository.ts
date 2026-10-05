@@ -101,6 +101,22 @@ export class PlayRepository {
   }
 
   /**
+   * Everyone on a team now, in the order they joined it.
+   *
+   * The order is what a communication challenge deals its parts out by
+   * (EXPD-038), so it is fixed: joined first, then the row id to break a tie.
+   */
+  async listTeamMembers(teamId: string): Promise<TeamMemberRow[]> {
+    return this.#tenant.find<TeamMemberRow>('team_member', {
+      where: { team_id: teamId, left_at: null },
+      orderBy: [
+        { column: 'joined_at', direction: 'asc' },
+        { column: 'id', direction: 'asc' },
+      ],
+    });
+  }
+
+  /**
    * One team in one run.
    *
    * With `forUpdate`, the row is locked to the end of the transaction. Every
