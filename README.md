@@ -109,7 +109,8 @@ routes and dependencies it sets on the graph's edges and stops (EXPD-029), and
 the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
 platform ships as code, the QR hunt (EXPD-032), photo evidence
-(EXPD-033), the physical challenge (EXPD-034) and the puzzle (EXPD-035), all
+(EXPD-033), the physical challenge (EXPD-034), the puzzle (EXPD-035) and
+the timed challenge (EXPD-036), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -175,7 +176,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0012_puzzle_mission_type.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0013_timed_challenge_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -3121,6 +3122,85 @@ Where it lives:
    QR hunt (EXPD-032).
 3. **No puzzle screens.** Drawing the question, the choices and the
    drag-to-order list on the phone is the mission detail view (EXPD-042).
+
+### The timed challenge mission type
+
+`timed-challenge@1.0.0` is a mission type the platform ships as code
+(EXPD-036). The team races the clock to finish a task, and **how long they
+took decides how many points they earn.**
+
+```json
+{ "payload": { "done": true, "code": "KESTREL" } }
+```
+
+The author writes the mission's `config`:
+
+| Setting                   | What it does                                                            |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `steps`                   | One to twenty steps the team follows. Required. The team sees them.     |
+| `fullPointsWithinSeconds` | Finish inside this and earn every point. Required, whole seconds, ≥ 1. The team sees it. |
+| `pointsRunOutAtSeconds`   | The share has fallen to `minimumShare` by this time. Required, whole seconds, ≥ 1. |
+| `minimumShare`            | The least share any finish earns, from 0 to 1. Default 0.               |
+| `finishCode`              | Optional. A code at the finish the team has to send to stop the clock. Never shown. |
+
+```json
+{
+  "steps": ["Run to the bandstand.", "Read the code on the post.", "Run back."],
+  "fullPointsWithinSeconds": 60,
+  "pointsRunOutAtSeconds": 180,
+  "finishCode": "KESTREL"
+}
+```
+
+How the time is scored:
+
+- **The clock is the server's.** It runs from the `start` that opened the
+  try to the moment the hand-in reaches the API. The engine works that out
+  and gives it to the type as `elapsedSeconds` on `evaluate` — a field
+  EXPD-036 adds to the behaviour input, available to every type. A phone
+  cannot send a time of its own; the submission schema refuses one.
+- **Time becomes a share.** Inside `fullPointsWithinSeconds` the share is 1.
+  It falls in a straight line to `minimumShare` at `pointsRunOutAtSeconds`
+  and stays there. With the example above, a 2:00 finish earns half.
+- **The share is the verdict's `progress`, and partial credit pays it.** The
+  scoring engine (EXPD-012) pays `basePoints × progress` only when the
+  mission's `scoring.allowPartialCredit` is true, so this type's Studio
+  default turns it on. Turned off, every finish earns full points.
+- **A slow finish still completes the mission.** To end a mission when time
+  is up, set the mission's own `timeLimitSeconds`; the engine expires it.
+- **A wrong or missing finish code is `incorrect`** and the clock keeps
+  running. The feedback never says the code.
+- **The verdict's `detail`** carries `elapsedSeconds`, both times and the
+  `share`.
+
+Rules the type holds, because the schema subset cannot compare two fields:
+
+- A `pointsRunOutAtSeconds` at or below `fullPointsWithinSeconds` is a cliff:
+  full points inside the time, `minimumShare` after.
+- With no `start` to measure from, the hand-in is `needs-review` rather than
+  a guessed time.
+
+Where it lives:
+
+| File                                                           | What it holds                                   |
+| -------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/timed-challenge.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`                 | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/db/migrations/0013_timed_challenge_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `packages/engine/src/completion/timer.ts`                      | `secondsSinceAttemptStarted`, the time the type is handed. |
+| `apps/api/test/mission-types/timed-challenge.test.ts`          | What may be written and handed in, and what the time is worth. |
+| `apps/api/test/mission-types/timed-challenge-row.test.ts`      | The row in 0013 matches the code, field by field. |
+| `packages/engine/test/completion/elapsed.test.ts`              | The engine hands a type the time from the running try. |
+| `apps/api/test/play/timed-challenge.test.ts`                   | A timed challenge played through the API.       |
+
+**What is deliberately not here.**
+
+1. **No teacher review.** A teacher's approval pays full points whatever the
+   time, which would undo the type. Proof is the `finishCode`.
+2. **No countdown screen.** Drawing the clock on the phone is the mission
+   detail view (EXPD-042); the layout already holds a `timer` block.
+3. **No time the team measures itself.** That is a physical challenge
+   (EXPD-034) with a `measure` in seconds.
 
 ### Known gaps in `apps/student-mobile`
 
