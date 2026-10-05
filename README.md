@@ -110,7 +110,7 @@ the media library those missions show files from (EXPD-030), and publishing
 and versioning a mission type (EXPD-031), and the first mission types the
 platform ships as code, the QR hunt (EXPD-032), photo evidence
 (EXPD-033), the physical challenge (EXPD-034), the puzzle (EXPD-035) and
-the timed challenge (EXPD-036), all
+the timed challenge (EXPD-036) and teacher verification (EXPD-037), all
 described below. The rest is tracked in its
 own tickets:
 
@@ -176,7 +176,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0001_core_data_mod
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0002_auth_and_tenancy.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0003_append_only_audit_log.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0004_auditable_event_stream.sql
-# …and so on, in order, up to 0013_timed_challenge_mission_type.sql. apps/api/db/README.md lists them all.
+# …and so on, in order, up to 0014_teacher_verification_mission_type.sql. apps/api/db/README.md lists them all.
 ```
 
 The schema stores a published expedition twice over, on purpose. The whole
@@ -3201,6 +3201,62 @@ Where it lives:
    detail view (EXPD-042); the layout already holds a `timer` block.
 3. **No time the team measures itself.** That is a physical challenge
    (EXPD-034) with a `measure` in seconds.
+
+### The teacher verification mission type
+
+`teacher-verification@1.0.0` is a mission type the platform ships as code
+(EXPD-037). The team does something in front of a facilitator — performs the
+poem, shows the knot — and says it is ready. The facilitator approves it or
+rejects it from Director Mode.
+
+```json
+{ "payload": { "ready": true, "note": "We are by the climbing frame." } }
+```
+
+The author writes the mission's `config`:
+
+| Setting     | What it does                                                                  |
+| ----------- | ----------------------------------------------------------------------------- |
+| `checklist` | One to ten things the facilitator is looking for. Required. The team sees them; so does the facilitator. |
+
+What happens to a hand-in:
+
+- **Code never decides.** Every hand-in is `needs-review`, waits in
+  `awaiting-verification`, and is not scored.
+- **The verdict's `detail` carries the `checklist` and the team's `note`**,
+  so the facilitator reads the same list the team was given.
+- **The facilitator decides** with the decision endpoint Director Mode
+  calls (EXPD-020), staff only:
+
+  ```http
+  POST /sessions/:id/teams/:teamId/missions/:missionId/complete
+  { "decision": "approve", "note": "Solid knot." }
+  ```
+
+  `approve` completes the mission and pays for it. `reject` hands it back
+  for another go, or fails it on the last try. The note is written into the
+  mission's history and onto the submission, and the decision into the
+  audit log. A decision before the team is ready is refused with `not-now`;
+  a team's own device is refused with `403`.
+
+Where it lives:
+
+| File                                                                | What it holds                                   |
+| ------------------------------------------------------------------- | ----------------------------------------------- |
+| `apps/api/src/mission-types/platform/teacher-verification.ts`       | The definition, its behaviour, its Studio defaults. |
+| `apps/api/src/mission-types/platform/index.ts`                      | `PLATFORM_MISSION_TYPES`, which `createApp` plays with unless given its own list. |
+| `apps/api/db/migrations/0014_teacher_verification_mission_type.sql` | The platform `mission_type` row the Studio lists. |
+| `apps/api/test/mission-types/teacher-verification.test.ts`          | What may be written and handed in, and what a hand-in becomes. |
+| `apps/api/test/mission-types/teacher-verification-row.test.ts`      | The row in 0014 matches the code, field by field. |
+| `apps/api/test/play/teacher-verification.test.ts`                   | Ready, approved, rejected and failed, through the API. |
+
+**What is deliberately not here.**
+
+1. **No Director Mode screens.** The dashboard is EXPD-055 and the review
+   queue that lists waiting work is EXPD-056. Both call the endpoint above.
+2. **No approving work the team never handed in.** A facilitator marking a
+   mission done on their own is the manual override, EXPD-058.
+3. **No photo.** Proof by picture is photo evidence (EXPD-033).
 
 ### Known gaps in `apps/student-mobile`
 

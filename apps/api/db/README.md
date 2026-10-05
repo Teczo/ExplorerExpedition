@@ -29,6 +29,7 @@ psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0010_photo_evidenc
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0011_physical_challenge_mission_type.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0012_puzzle_mission_type.sql
 psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0013_timed_challenge_mission_type.sql
+psql -d explorer -v ON_ERROR_STOP=1 -f apps/api/db/migrations/0014_teacher_verification_mission_type.sql
 ```
 
 Every migration wraps itself in `BEGIN` and `COMMIT`, so a file that fails
